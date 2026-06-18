@@ -1,88 +1,175 @@
-## 1. Verificación de Java
+# API de Estudiantes con Spring Boot
 
-Se verificó correctamente la instalación de Java mediante el siguiente comando:
+## Autor
 
-```bash
-java -version
-```
+**Josué Abad**
 
-## Resultado obtenido:
+---
+
+# Introducción
+
+En esta práctica se desarrolló una API REST básica utilizando Spring Boot.
+
+La aplicación permite consultar una lista de estudiantes almacenados en memoria y obtener la cantidad total de estudiantes registrados.
+
+Se utilizó la arquitectura básica de Spring Boot mediante:
+
+* Modelos (Model)
+* Controladores (Controller)
+* Endpoints REST
+
+---
+
+# Estructura del proyecto
 
 ```text
-java version "17.0.11" 2024-04-16 LTS
-Java(TM) SE Runtime Environment (build 17.0.11+7-LTS-207)
-Java HotSpot(TM) 64-Bit Server VM (build 17.0.11+7-LTS-207, mixed mode, sharing)
+src/
+└── main/
+    └── java/
+        └── ec/edu/ups/icc/fundamentos01/
+            └── students/
+                ├── controllers/
+                │   └── StudentController.java
+                └── models/
+                    └── Student.java
 ```
-
-![Verificación Java](JavaVerificacion.png)
 
 ---
 
-## 2. Ejecución del servidor Spring Boot
+# Modelo Student
 
-Se ejecutó la aplicación utilizando Gradle mediante el comando:
+La clase `Student` representa la entidad estudiante.
 
-```bash
-.\gradlew.bat bootRun
-```
+### Atributos
 
-La consola mostró el inicio correcto del servidor Spring Boot y Tomcat.
+| Campo | Tipo   |
+| ----- | ------ |
+| id    | Long   |
+| name  | String |
+| age   | int    |
 
-![Spring Boot iniciado](servidorSpring-Boot.png)
+Ejemplo:
 
----
-
-## 3. Endpoint `/api/status` funcionando
-
-Se probó el endpoint desarrollado para verificar el estado de la API.
-
-URL utilizada:
-text
-http://localhost:8080/api/status
-
-
-Respuesta obtenida:
-
-
+```json
 {
-  "service": "Spring Boot API",
-  "status": "running",
-  "timestamp": "2026-06-12T09:16:00"
+  "id": 1,
+  "name": "Juan",
+  "age": 30
 }
 ```
-```
-
-
-![Endpoint funcionando](endPoint.png)
 
 ---
 
-## 4. Verificación del controlador creado
+# Configuración de la API
 
-Se verificó la existencia del controlador mediante el comando:
+Archivo:
 
-```bash
-ls ./src/main/java/ec/edu/ups/icc/fundamentos01/controllers/
+```yaml
+application.yml
 ```
 
-Resultado esperado:
+Configuración utilizada:
+
+```yaml
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+spring:
+  application:
+    name: fundamentos01
+```
+
+Esto significa que la aplicación se ejecuta en:
 
 ```text
-StatusController.java
+http://localhost:8080/api
 ```
-
-![Controlador](capturaComando.png)
 
 ---
 
-## 5. Explicación
+# Endpoints implementados
 
-Durante esta práctica aprendí que Spring Boot permite crear aplicaciones web y APIs REST de manera rápida mediante una estructura organizada basada en controladores, servicios y configuraciones automáticas.
+## Obtener todos los estudiantes
 
-El endpoint `/api/status` funciona gracias al controlador `StatusController`, el cual recibe solicitudes HTTP GET y devuelve una respuesta en formato JSON. Esto permite exponer información de la aplicación a través de una URL accesible desde el navegador o herramientas como Postman.
+### URL
 
-También comprendí que Spring Boot incorpora un servidor web embebido llamado Tomcat, lo que permite ejecutar la aplicación sin necesidad de instalar un servidor externo. Gracias a esto es posible desarrollar y probar APIs de forma sencilla y eficiente.
+```http
+GET /api/students
+```
 
-La práctica permitió entender la estructura básica de un proyecto Spring Boot y el proceso para crear endpoints REST utilizando anotaciones como `@RestController` y `@GetMapping`.
+### Respuesta
 
+```json
+[
+  {
+    "id": 1,
+    "name": "Juan",
+    "age": 30
+  },
+  {
+    "id": 2,
+    "name": "Diego",
+    "age": 10
+  }
+]
+```
 
+---
+
+## Obtener cantidad de estudiantes
+
+### URL
+
+```http
+GET /api/students/count
+```
+
+### Respuesta
+
+```text
+Total estudiantes: 2
+```
+
+---
+
+# Evidencias
+
+## 1. Ejecución del servidor Spring Boot
+
+Captura del servidor ejecutándose correctamente.
+
+![Servidor](assets/ejecucionServidor.png)
+
+---
+
+## 2. Endpoint GET /students
+
+Captura del navegador o Postman mostrando la lista de estudiantes.
+
+![Students](assets/students-endpoint.png)
+
+---
+
+## 3. Endpoint GET /students/count
+
+Captura mostrando el total de estudiantes.
+
+![Count](assets/count-endpoint.png)
+
+---
+
+# Explicación 
+
+Durante esta práctica aprendí cómo crear una API REST básica utilizando Spring Boot.
+
+La clase `Student` funciona como modelo de datos y representa la información de cada estudiante. El controlador `StudentController` expone endpoints HTTP que permiten consultar la información almacenada en memoria.
+
+También comprendí el uso de las anotaciones:
+
+* `@RestController` para crear controladores REST.
+* `@RequestMapping` para definir una ruta base.
+* `@GetMapping` para responder solicitudes HTTP GET.
+
+Además, observé cómo Spring Boot convierte automáticamente los objetos Java en respuestas JSON, facilitando la creación de APIs para aplicaciones web y móviles.
