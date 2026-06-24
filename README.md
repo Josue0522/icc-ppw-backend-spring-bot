@@ -4,6 +4,14 @@
 
 **Josué Abad**
 
+mkdir controllers/
+mkdir services/
+mkdir repositories/
+mkdir entities/
+mkdir dtos/
+mkdir mappers/
+mkdir utils/
+
 ---
 
 # Introducción
