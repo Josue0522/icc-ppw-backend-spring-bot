@@ -1,6 +1,5 @@
 package ec.edu.ups.icc.fundamentos01.products.services;
 
-import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
@@ -9,103 +8,83 @@ import ec.edu.ups.icc.fundamentos01.products.dto.CreateProductDto;
 import ec.edu.ups.icc.fundamentos01.products.dto.PartialUpdateProductDto;
 import ec.edu.ups.icc.fundamentos01.products.dto.ProductResponseDto;
 import ec.edu.ups.icc.fundamentos01.products.dto.UpdateProductDto;
+import ec.edu.ups.icc.fundamentos01.products.entity.ProductEntity;
 import ec.edu.ups.icc.fundamentos01.products.mappers.ProductMapper;
-import ec.edu.ups.icc.fundamentos01.products.models.ProductModel;
-import ec.edu.ups.icc.fundamentos01.products.dto.core.*;;
+import ec.edu.ups.icc.fundamentos01.products.repository.ProductRepository;
+import ec.edu.ups.icc.fundamentos01.products.services.ProductService;
 
 @Service
 public class ProductServiceImpl implements ProductService {
 
-    private List<ProductModel> products = new ArrayList<>();
-    private Long currentId = 1L;
+    private final ProductRepository productRepository;
+
+    public ProductServiceImpl(ProductRepository productRepository) {
+        this.productRepository = productRepository;
+    }
 
     @Override
     public List<ProductResponseDto> findAll() {
-        return products.stream()
-                .map(ProductMapper::toResponse)
+        return productRepository.findAll()
+                .stream()
+                .filter(product -> !product.isDeleted())
+                .map(ProductMapper::toResponseDto)
                 .toList();
     }
 
     @Override
-    public Object findOne(Long id) {
-
-        return products.stream()
-                .filter(product -> product.getId().equals(id))
-                .findFirst()
-                .map(product -> (Object) ProductMapper.toResponse(product))
-                .orElseGet(() -> new ErrorResponseDto("Product not found"));
+    public ProductResponseDto findOne(Long id) {
+        ProductEntity product = findActiveProductById(id);
+        return ProductMapper.toResponseDto(product);
     }
 
     @Override
     public ProductResponseDto create(CreateProductDto dto) {
-
-        ProductModel product = ProductMapper.toModel(dto);
-
-        product.setId(currentId);
-        currentId++;
-
-        products.add(product);
-
-        return ProductMapper.toResponse(product);
+        ProductEntity product = ProductMapper.toEntity(dto);
+        ProductEntity savedProduct = productRepository.save(product);
+        return ProductMapper.toResponseDto(savedProduct);
     }
 
     @Override
-    public Object update(Long id, UpdateProductDto dto) {
+    public ProductResponseDto update(Long id, UpdateProductDto dto) {
+        ProductEntity product = findActiveProductById(id);
 
-        ProductModel product = products.stream()
-                .filter(item -> item.getId().equals(id))
-                .findFirst()
-                .orElse(null);
+        ProductMapper.updateEntity(product, dto);
 
-        if (product == null) {
-            return new ErrorResponseDto("Product not found");
-        }
-
-        product.setName(dto.getName());
-        product.setPrice(dto.getPrice());
-        product.setStock(dto.getStock());
-
-        return ProductMapper.toResponse(product);
+        ProductEntity updatedProduct = productRepository.save(product);
+        return ProductMapper.toResponseDto(updatedProduct);
     }
 
     @Override
-    public Object partialUpdate(Long id, PartialUpdateProductDto dto) {
+    public ProductResponseDto partialUpdate(Long id, PartialUpdateProductDto dto) {
+        ProductEntity product = findActiveProductById(id);
 
-        ProductModel product = products.stream()
-                .filter(item -> item.getId().equals(id))
-                .findFirst()
-                .orElse(null);
+        ProductMapper.partialUpdateEntity(product, dto);
 
-        if (product == null) {
-            return new ErrorResponseDto("Product not found");
-        }
-
-        if (dto.getName() != null) {
-            product.setName(dto.getName());
-        }
-
-        if (dto.getPrice() != null) {
-            product.setPrice(dto.getPrice());
-        }
-
-        if (dto.getStock() != null) {
-            product.setStock(dto.getStock());
-        }
-
-        return ProductMapper.toResponse(product);
+        ProductEntity updatedProduct = productRepository.save(product);
+        return ProductMapper.toResponseDto(updatedProduct);
     }
 
     @Override
-    public Object delete(Long id) {
+    public void delete(Long id) {
+        ProductEntity product = productRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Producto no encontrado con id: " + id));
 
-        boolean removed = products.removeIf(product -> product.getId().equals(id));
-
-        if (!removed) {
-            return new ErrorResponseDto("Product not found");
+        if (product.isDeleted()) {
+            throw new IllegalStateException("El producto ya fue eliminado");
         }
 
-        return new Object() {
-            public String message = "Deleted successfully";
-        };
+        product.setDeleted(true);
+        productRepository.save(product);
+    }
+
+    private ProductEntity findActiveProductById(Long id) {
+        ProductEntity product = productRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Producto no encontrado con id: " + id));
+
+        if (product.isDeleted()) {
+            throw new IllegalStateException("El producto está eliminado");
+        }
+
+        return product;
     }
 }

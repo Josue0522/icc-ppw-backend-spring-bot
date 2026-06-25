@@ -1,115 +1,67 @@
 package ec.edu.ups.icc.fundamentos01.products.controllers;
 
-import java.util.ArrayList;
 import java.util.List;
 
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
-import ec.edu.ups.icc.fundamentos01.products.dto.*;
-import ec.edu.ups.icc.fundamentos01.products.mappers.ProductMapper;
-import ec.edu.ups.icc.fundamentos01.products.models.ProductModel;
+import ec.edu.ups.icc.fundamentos01.products.dto.CreateProductDto;
+import ec.edu.ups.icc.fundamentos01.products.dto.PartialUpdateProductDto;
+import ec.edu.ups.icc.fundamentos01.products.dto.ProductResponseDto;
+import ec.edu.ups.icc.fundamentos01.products.dto.UpdateProductDto;
+import ec.edu.ups.icc.fundamentos01.products.services.ProductService;
+import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping("/products")
 public class ProductsController {
 
-    private List<ProductModel> products = new ArrayList<>();
-    private Long currentId = 1L;
+    private final ProductService productService;
+
+    public ProductsController(ProductService productService) {
+        this.productService = productService;
+    }
 
     @GetMapping
     public List<ProductResponseDto> findAll() {
-        return products.stream()
-                .map(ProductMapper::toResponse)
-                .toList();
+        return productService.findAll();
     }
 
     @GetMapping("/{id}")
-    public Object findOne(@PathVariable Long id) {
-
-        return products.stream()
-                .filter(p -> p.getId().equals(id))
-                .findFirst()
-                .map(product -> (Object) ProductMapper.toResponse(product))
-                .orElseGet(() -> new Object() {
-                    public String error = "Product not found";
-                });
+    public ProductResponseDto findOne(@PathVariable Long id) {
+        return productService.findOne(id);
     }
 
     @PostMapping
-    public ProductResponseDto create(@RequestBody CreateProductDto dto) {
-
-        ProductModel product = ProductMapper.toModel(dto);
-
-        product.setId(currentId);
-        currentId++;
-
-        products.add(product);
-
-        return ProductMapper.toResponse(product);
+    public ProductResponseDto create(@Valid @RequestBody CreateProductDto dto) {
+        return productService.create(dto);
     }
 
     @PutMapping("/{id}")
-    public Object update(@PathVariable Long id,
-                         @RequestBody UpdateProductDto dto) {
+    public ProductResponseDto update(
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateProductDto dto) {
 
-        ProductModel product = products.stream()
-                .filter(p -> p.getId().equals(id))
-                .findFirst()
-                .orElse(null);
-
-        if (product == null) {
-            return new Object() {
-                public String error = "Product not found";
-            };
-        }
-
-        product.setName(dto.getName());
-        product.setPrice(dto.getPrice());
-        product.setStock(dto.getStock());
-
-        return ProductMapper.toResponse(product);
+        return productService.update(id, dto);
     }
 
     @PatchMapping("/{id}")
-    public Object partialUpdate(@PathVariable Long id,
-                                @RequestBody PartialUpdateProductDto dto) {
+    public ProductResponseDto partialUpdate(
+            @PathVariable Long id,
+            @Valid @RequestBody PartialUpdateProductDto dto) {
 
-        ProductModel product = products.stream()
-                .filter(p -> p.getId().equals(id))
-                .findFirst()
-                .orElse(null);
-
-        if (product == null) {
-            return new Object() {
-                public String error = "Product not found";
-            };
-        }
-
-        if (dto.getName() != null)
-            product.setName(dto.getName());
-
-        if (dto.getPrice() != null)
-            product.setPrice(dto.getPrice());
-
-        if (dto.getStock() != null)
-            product.setStock(dto.getStock());
-
-        return ProductMapper.toResponse(product);
+        return productService.partialUpdate(id, dto);
     }
 
     @DeleteMapping("/{id}")
-    public Object delete(@PathVariable Long id) {
-
-        boolean removed = products.removeIf(p -> p.getId().equals(id));
-
-        if (!removed) {
-            return new Object() {
-                public String error = "Product not found";
-            };
-        }
-
-        return new Object() {
-            public String message = "Deleted successfully";
-        };
+    public void delete(@PathVariable Long id) {
+        productService.delete(id);
     }
 }
