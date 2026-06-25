@@ -4,6 +4,8 @@ import java.util.List;
 
 import org.springframework.stereotype.Service;
 
+import ec.edu.ups.icc.fundamentos01.core.exceptions.domain.ConflictException;
+import ec.edu.ups.icc.fundamentos01.core.exceptions.domain.NotFoundException;
 import ec.edu.ups.icc.fundamentos01.users.dto.CreateUserDto;
 import ec.edu.ups.icc.fundamentos01.users.dto.PartialUpdateUserDto;
 import ec.edu.ups.icc.fundamentos01.users.dto.UpdateUserDto;
@@ -40,7 +42,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserResponseDto create(CreateUserDto dto) {
         if (userRepository.findByEmail(dto.getEmail()).isPresent()) {
-            throw new IllegalStateException("Email already registered");
+            throw new ConflictException("Email already registered");
         }
 
         UserEntity user = UserMapper.toEntity(dto);
@@ -56,12 +58,13 @@ public class UserServiceImpl implements UserService {
         userRepository.findByEmail(dto.getEmail())
                 .filter(existingUser -> !existingUser.getId().equals(id))
                 .ifPresent(existingUser -> {
-                    throw new IllegalStateException("Email already registered");
+                    throw new ConflictException("Email already registered");
                 });
 
         UserMapper.updateEntity(user, dto);
 
         UserEntity updatedUser = userRepository.save(user);
+
         return UserMapper.toResponseDto(updatedUser);
     }
 
@@ -73,23 +76,24 @@ public class UserServiceImpl implements UserService {
             userRepository.findByEmail(dto.getEmail())
                     .filter(existingUser -> !existingUser.getId().equals(id))
                     .ifPresent(existingUser -> {
-                        throw new IllegalStateException("Email already registered");
+                        throw new ConflictException("Email already registered");
                     });
         }
 
         UserMapper.partialUpdateEntity(user, dto);
 
         UserEntity updatedUser = userRepository.save(user);
+
         return UserMapper.toResponseDto(updatedUser);
     }
 
     @Override
     public void delete(Long id) {
         UserEntity user = userRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado con id: " + id));
+                .orElseThrow(() -> new NotFoundException("User not found"));
 
         if (user.isDeleted()) {
-            throw new IllegalStateException("El usuario ya fue eliminado");
+            throw new NotFoundException("User not found");
         }
 
         user.setDeleted(true);
@@ -98,10 +102,10 @@ public class UserServiceImpl implements UserService {
 
     private UserEntity findActiveUserById(Long id) {
         UserEntity user = userRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado con id: " + id));
+                .orElseThrow(() -> new NotFoundException("User not found"));
 
         if (user.isDeleted()) {
-            throw new IllegalStateException("El usuario está eliminado");
+            throw new NotFoundException("User not found");
         }
 
         return user;

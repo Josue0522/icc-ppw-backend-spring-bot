@@ -4,6 +4,8 @@ import java.util.List;
 
 import org.springframework.stereotype.Service;
 
+import ec.edu.ups.icc.fundamentos01.core.exceptions.domain.ConflictException;
+import ec.edu.ups.icc.fundamentos01.core.exceptions.domain.NotFoundException;
 import ec.edu.ups.icc.fundamentos01.products.dto.CreateProductDto;
 import ec.edu.ups.icc.fundamentos01.products.dto.PartialUpdateProductDto;
 import ec.edu.ups.icc.fundamentos01.products.dto.ProductResponseDto;
@@ -39,8 +41,13 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public ProductResponseDto create(CreateProductDto dto) {
+        if (productRepository.findByName(dto.getName()).isPresent()) {
+            throw new ConflictException("Product name already registered");
+        }
+
         ProductEntity product = ProductMapper.toEntity(dto);
         ProductEntity savedProduct = productRepository.save(product);
+
         return ProductMapper.toResponseDto(savedProduct);
     }
 
@@ -51,6 +58,7 @@ public class ProductServiceImpl implements ProductService {
         ProductMapper.updateEntity(product, dto);
 
         ProductEntity updatedProduct = productRepository.save(product);
+
         return ProductMapper.toResponseDto(updatedProduct);
     }
 
@@ -61,16 +69,17 @@ public class ProductServiceImpl implements ProductService {
         ProductMapper.partialUpdateEntity(product, dto);
 
         ProductEntity updatedProduct = productRepository.save(product);
+
         return ProductMapper.toResponseDto(updatedProduct);
     }
 
     @Override
     public void delete(Long id) {
         ProductEntity product = productRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Producto no encontrado con id: " + id));
+                .orElseThrow(() -> new NotFoundException("Product not found"));
 
         if (product.isDeleted()) {
-            throw new IllegalStateException("El producto ya fue eliminado");
+            throw new NotFoundException("Product not found");
         }
 
         product.setDeleted(true);
@@ -79,10 +88,10 @@ public class ProductServiceImpl implements ProductService {
 
     private ProductEntity findActiveProductById(Long id) {
         ProductEntity product = productRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Producto no encontrado con id: " + id));
+                .orElseThrow(() -> new NotFoundException("Product not found"));
 
         if (product.isDeleted()) {
-            throw new IllegalStateException("El producto está eliminado");
+            throw new NotFoundException("Product not found");
         }
 
         return product;
