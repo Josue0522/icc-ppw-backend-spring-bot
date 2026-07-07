@@ -12,6 +12,9 @@ public class PartialUpdateUserDto {
     @Size(max = 150, message = "El email no debe superar los 150 caracteres")
     private String email;
 
+    @Size(min = 6, message = "La contraseña debe tener al menos 8 caracteres")
+    private String password;
+
     public String getName() {
         return name;
     }
@@ -20,11 +23,19 @@ public class PartialUpdateUserDto {
         this.name = name;
     }
 
-	public String getEmail() {
+    public String getEmail() {
         return email;
     }
 
     public void setEmail(String email) {
         this.email = email;
+    }
+    
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
     }
 }

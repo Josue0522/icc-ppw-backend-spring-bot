@@ -47,16 +47,16 @@ public class UsersController {
     @PutMapping("/{id}")
     public UserResponseDto update(
             @PathVariable Long id,
-            @Valid @RequestBody UpdateUserDto dto) {
-
+            @Valid @RequestBody UpdateUserDto dto
+    ) {
         return userService.update(id, dto);
     }
 
     @PatchMapping("/{id}")
     public UserResponseDto partialUpdate(
             @PathVariable Long id,
-            @Valid @RequestBody PartialUpdateUserDto dto) {
-
+            @Valid @RequestBody PartialUpdateUserDto dto
+    ) {
         return userService.partialUpdate(id, dto);
     }
 

@@ -23,45 +23,76 @@ import jakarta.validation.Valid;
 @RequestMapping("/products")
 public class ProductsController {
 
-    private final ProductService productService;
+    private final ProductService service;
 
-    public ProductsController(ProductService productService) {
-        this.productService = productService;
+    public ProductsController(ProductService service) {
+        this.service = service;
     }
 
     @GetMapping
     public List<ProductResponseDto> findAll() {
-        return productService.findAll();
+        return service.findAll();
     }
 
     @GetMapping("/{id}")
-    public ProductResponseDto findOne(@PathVariable Long id) {
-        return productService.findOne(id);
+    public ProductResponseDto findOne(@PathVariable("id") Long id) {
+        return service.findOne(id);
     }
 
     @PostMapping
     public ProductResponseDto create(@Valid @RequestBody CreateProductDto dto) {
-        return productService.create(dto);
+        return service.create(dto);
     }
 
     @PutMapping("/{id}")
-    public ProductResponseDto update(
-            @PathVariable Long id,
-            @Valid @RequestBody UpdateProductDto dto) {
-
-        return productService.update(id, dto);
+    public ProductResponseDto update(@Valid @PathVariable("id") Long id, @RequestBody UpdateProductDto dto) {
+        return service.update(id, dto);
     }
 
     @PatchMapping("/{id}")
-    public ProductResponseDto partialUpdate(
-            @PathVariable Long id,
-            @Valid @RequestBody PartialUpdateProductDto dto) {
-
-        return productService.partialUpdate(id, dto);
+    public ProductResponseDto partialUpdate(@Valid @PathVariable("id") Long id, @RequestBody PartialUpdateProductDto dto) {
+        return service.partialUpdate(id, dto);
     }
 
     @DeleteMapping("/{id}")
-    public void delete(@PathVariable Long id) {
-        productService.delete(id);
+    public void delete(@PathVariable("id") Long id) {
+        service.delete(id);
+    }
+
+    /*
+     * Endpoint para buscar productos por id de usuario.
+     *
+     * GET /products/user/{userId}
+     */
+    @GetMapping("/user/{userId}")
+    public List<ProductResponseDto> findByUserId(@PathVariable("userId") Long userId) {
+        return service.findByUserId(userId);
+    }
+
+    /*
+     * Endpoint para buscar productos por id de categoría.
+     *
+     * GET /products/category/{categoryId}
+     */
+    @GetMapping("/category/{categoryId}")
+    public List<ProductResponseDto> findByCategoryId(@PathVariable("categoryId") Long categoryId) {
+        return service.findByCategoryId(categoryId);
+    }
+
+    /*
+     * Endpoint custom para validar si el nombre de un producto ya existe.
+     *
+     * POST /products/validate-name
+     */
+    @PostMapping("/validate-name")
+    public java.util.Map<String, Boolean> validateName(@RequestBody java.util.Map<String, String> request) {
+        // Extraemos el nombre del JSON que enviaste desde Bruno
+        String nameToCheck = request.get("name");
+        
+        // Llamamos al servicio para ver si existe
+        boolean exists = service.validateName(nameToCheck);
+        
+        // Devolvemos un JSON estructurado de respuesta
+        return java.util.Map.of("exists", exists);
     }
 }

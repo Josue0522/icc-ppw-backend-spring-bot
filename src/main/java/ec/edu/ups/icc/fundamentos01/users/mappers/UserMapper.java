@@ -19,17 +19,22 @@ public class UserMapper {
     public static void updateEntity(UserEntity entity, UpdateUserDto dto) {
         entity.setName(dto.getName());
         entity.setEmail(dto.getEmail());
+        //entity.setPasswordHash("HASH_"+dto.getPassword());
     }
 
     public static void partialUpdateEntity(UserEntity entity, PartialUpdateUserDto dto) {
-        if (dto.getName() != null) {
-            entity.setName(dto.getName());
-        }
-
-        if (dto.getEmail() != null) {
-            entity.setEmail(dto.getEmail());
-        }
+    if (dto.getName() != null) {
+        entity.setName(dto.getName());
     }
+
+    if (dto.getEmail() != null) {
+        entity.setEmail(dto.getEmail());
+    }
+
+    if (dto.getPassword() != null) {
+        entity.setPasswordHash("Hash - "+dto.getPassword());
+    }
+}
 
     public static UserResponseDto toResponseDto(UserEntity entity) {
         UserResponseDto dto = new UserResponseDto();
