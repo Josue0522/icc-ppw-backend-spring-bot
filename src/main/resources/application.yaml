@@ -16,3 +16,12 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: true
+
+# ============== CONFIGURACIÓN DE JWT ==============
+jwt:
+  secret: ${JWT_SECRET:mySecretKeyForJWT2024MustBeAtLeast256BitsLongForHS256Algorithm}
+  expiration: 1800000
+  refresh-expiration: 604800000
+  issuer: fundamentos01-api
+  header: Authorization
+  prefix: "Bearer "
