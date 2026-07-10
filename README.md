@@ -1,270 +1,164 @@
-# Práctica 11: Autenticación y Autorización con JWT
+# Práctica 12: Roles y @PreAuthorize
 
 ## 1. Tema
 
-Frameworks Backend: Spring Boot – Seguridad con Spring Security y JSON Web Tokens (JWT).
+Frameworks Backend: Spring Boot – Protección de endpoints por rol con `@PreAuthorize`.
 
-En esta práctica se implementó un sistema completo de autenticación y autorización *stateless* para la API REST del proyecto `fundamentos01`. Hasta este punto, todos los endpoints estaban completamente abiertos: cualquier persona podía consultar, crear, modificar o eliminar recursos sin ningún control de acceso.
+En la Práctica 11 se implementó autenticación JWT: con `.anyRequest().authenticated()` en `SecurityConfig`, todos los endpoints (excepto `/auth/**`) ya exigían un token válido. Sin embargo, cualquier usuario autenticado —sin importar su rol— podía acceder a cualquier endpoint protegido.
 
-Se incorporó **Spring Security** junto con **JWT (JSON Web Tokens)** para verificar la identidad de los usuarios (autenticación) y controlar qué pueden hacer una vez identificados (autorización), sin depender de sesiones en el servidor.
+En esta práctica se agregó una capa adicional de **autorización por rol**, restringiendo un endpoint sensible únicamente a usuarios con `ROLE_ADMIN`.
 
 ---
 
 ## 2. Objetivo
 
-Implementar autenticación basada en tokens usando:
-
-- Spring Security (`spring-boot-starter-security`)
-- JWT con la librería `jjwt` (`io.jsonwebtoken`)
-- `BCryptPasswordEncoder` para el hash seguro de contraseñas
-- Relación `ManyToMany` entre usuarios y roles
-- Filtros personalizados de autenticación (`OncePerRequestFilter`)
-- Manejo centralizado de errores de autenticación (`AuthenticationEntryPoint`)
-- Endpoints públicos de registro e inicio de sesión
-- Protección automática del resto de la API
+- Usar `@PreAuthorize` con expresiones de rol (`hasRole()`) para proteger un endpoint específico.
+- Manejar correctamente las excepciones de autorización de Spring Security, devolviendo `403 Forbidden` en vez de `500 Internal Server Error`.
+- Verificar el comportamiento con usuarios de distinto rol.
 
 ---
 
-## 3. Problema identificado
+## 3. Prerrequisito
 
-Antes de esta práctica, endpoints como:
-
-```txt
-GET  /api/products
-POST /api/products
-DELETE /api/users/{id}
-```
-
-eran accesibles por cualquier cliente, sin importar si estaba identificado o no. En una aplicación real esto es inaceptable: se necesita saber **quién** hace la petición y **qué permisos** tiene antes de dejarlo operar sobre los datos.
+`SecurityConfig` ya contaba con `@EnableMethodSecurity(prePostEnabled = true)` desde la Práctica 11, por lo que no fue necesario modificar la configuración de seguridad global. Esto habilita el uso de `@PreAuthorize` en cualquier método de un `@RestController` o `@Service`.
 
 ---
 
-## 4. Estrategia de implementación
+## 4. Endpoint protegido
 
-Se optó por un esquema **stateless** (sin sesiones HTTP), ideal para APIs REST:
+Se protegió únicamente el endpoint que lista **todos** los productos sin paginar, ya que expone datos de todos los usuarios sin ningún filtro:
 
-- **JWT** en lugar de sesiones basadas en cookies: cada petición incluye su propio token, el servidor no guarda estado.
-- **Tabla separada de roles** (`RoleEntity`) en vez de un simple campo de texto en el usuario, permitiendo asignar múltiples roles y escalar a futuro.
-- **BCrypt** para el hash de contraseñas, con *salt* aleatorio automático.
-- **Filtro de autenticación** (`JwtAuthenticationFilter`) que valida el token en cada request antes de llegar al controlador.
+Archivo: `products/controllers/ProductsController.java`
 
----
+```java
+import org.springframework.security.access.prepost.PreAuthorize;
 
-## 5. Estructura de paquetes creada
+// ...
 
-```txt
-security/
-├── config/
-│   ├── JwtProperties.java
-│   ├── SecurityConfig.java
-│   └── SecurityDataInitializer.java
-├── controllers/
-│   └── AuthController.java
-├── dtos/
-│   ├── AuthResponseDto.java
-│   ├── LoginRequestDto.java
-│   └── RegisterRequestDto.java
-├── entities/
-│   └── RoleEntity.java
-├── enums/
-│   └── RoleName.java
-├── filters/
-│   ├── JwtAuthenticationEntryPoint.java
-│   └── JwtAuthenticationFilter.java
-├── repositories/
-│   └── RoleRepository.java
-├── services/
-│   ├── AuthService.java
-│   ├── UserDetailsImpl.java
-│   └── UserDetailsServiceImpl.java
-└── utils/
-    └── JwtUtil.java
-```
-
-Adicionalmente se modificó:
-
-- `users/entity/UserEntity.java` → se agregó la relación `@ManyToMany` con `RoleEntity`.
-- `users/repository/UserRepository.java` → se agregaron los métodos `findByEmailAndDeletedFalse` y `existsByEmail`.
-
----
-
-## 6. Dependencias agregadas
-
-Archivo: `build.gradle.kts`
-
-```kotlin
-dependencies {
-    // ============== SEGURIDAD: Spring Security + JWT ==============
-    implementation("org.springframework.boot:spring-boot-starter-security")
-    implementation("io.jsonwebtoken:jjwt-api:0.12.6")
-    runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.6")
-    runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.6")
-
-    // Jackson 2 clásico (Spring Boot 4.1 usa Jackson 3 por defecto)
-    implementation("com.fasterxml.jackson.core:jackson-databind")
-    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
+/*
+ * GET /api/products
+ *
+ * Solo ADMIN puede acceder: muestra todos los productos de todos los
+ * usuarios sin paginación, exponiendo más información de la necesaria
+ * para un usuario común.
+ */
+@GetMapping
+@PreAuthorize("hasRole('ADMIN')")
+public List<ProductResponseDto> findAll() {
+    return service.findAll();
 }
 ```
 
-> **Nota técnica:** este proyecto usa Spring Boot 4.1, que adoptó Jackson 3 (`tools.jackson`) como serializador JSON por defecto. Como la librería `jjwt-jackson` y nuestro manejador de errores dependen de las clases clásicas de Jackson 2 (`com.fasterxml.jackson`), fue necesario declararlas explícitamente como dependencia de compilación.
+El resto de endpoints del controlador (`/products/page`, `/products/slice`, `/products/{id}`, `create`, `update`, `delete`, etc.) se mantuvieron sin cambios: siguen protegidos solo por autenticación (`.anyRequest().authenticated()`), accesibles para cualquier usuario logueado.
+
+> **Nota:** `update()` y `delete()` no llevan `@PreAuthorize` porque la validación de *ownership* (propietario del recurso vs. ADMIN) se implementará en la Práctica 13, directamente en la capa de servicio.
 
 ---
 
-## 7. Configuración de JWT
+## 5. Manejo de excepciones de autorización
 
-Archivo: `src/main/resources/application.yaml`
+Por defecto, cuando `@PreAuthorize` deniega el acceso, Spring Security lanza `AuthorizationDeniedException`. Sin un manejador específico, esto se traduce en `500 Internal Server Error` en vez del esperado `403 Forbidden`.
 
-```yaml
-jwt:
-  secret: ${JWT_SECRET:mySecretKeyForJWT2024MustBeAtLeast256BitsLongForHS256Algorithm}
-  expiration: 1800000          # 30 minutos
-  refresh-expiration: 604800000  # 7 días
-  issuer: fundamentos01-api
-  header: Authorization
-  prefix: "Bearer "
-```
+Se agregaron dos manejadores en `GlobalExceptionHandler.java`:
 
-En producción, el secreto debe sobrescribirse mediante la variable de entorno `JWT_SECRET` y nunca dejarse hardcodeado.
+```java
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 
----
+/*
+ * Se lanza cuando @PreAuthorize evalúa a false (Spring Security 6.x).
+ * Ejemplo: usuario con ROLE_USER intenta acceder a un endpoint con
+ * @PreAuthorize("hasRole('ADMIN')").
+ */
+@ExceptionHandler(AuthorizationDeniedException.class)
+public ResponseEntity<ErrorResponse> handleAuthorizationDeniedException(
+        AuthorizationDeniedException ex,
+        HttpServletRequest request
+) {
+    ErrorResponse response = new ErrorResponse(
+            HttpStatus.FORBIDDEN,
+            "No tienes permisos para acceder a este recurso",
+            request.getRequestURI()
+    );
 
-## 8. Modelo de datos: roles
+    return ResponseEntity
+            .status(HttpStatus.FORBIDDEN)
+            .body(response);
+}
 
-Se creó la entidad `RoleEntity`, relacionada `ManyToMany` con `UserEntity` a través de una tabla intermedia `user_roles`, generada automáticamente por JPA.
+/*
+ * Fallback para AccessDeniedException, usada por ejemplo cuando se
+ * lanza manualmente desde un servicio al validar ownership (Práctica 13).
+ */
+@ExceptionHandler(AccessDeniedException.class)
+public ResponseEntity<ErrorResponse> handleAccessDeniedException(
+        AccessDeniedException ex,
+        HttpServletRequest request
+) {
+    ErrorResponse response = new ErrorResponse(
+            HttpStatus.FORBIDDEN,
+            "Acceso denegado. No tienes los permisos necesarios",
+            request.getRequestURI()
+    );
 
-```txt
-roles
-├── id
-├── name        (ROLE_USER | ROLE_ADMIN)
-├── description
-├── created_at
-└── updated_at
-
-user_roles
-├── user_id
-└── role_id
-```
-
-Al iniciar la aplicación, `SecurityDataInitializer` crea automáticamente los roles base (`ROLE_USER`, `ROLE_ADMIN`) si aún no existen en la base de datos.
-
----
-
-## 9. Endpoints de autenticación
-
-Con el `context-path: /api` configurado en el proyecto, los endpoints quedan expuestos así:
-
-| Método | Endpoint             | Acceso   | Descripción                                  |
-|--------|-----------------------|----------|-----------------------------------------------|
-| POST   | `/api/auth/register`  | Público  | Crea un usuario nuevo con `ROLE_USER` y devuelve un JWT |
-| POST   | `/api/auth/login`     | Público  | Valida credenciales y devuelve un JWT         |
-
-### Ejemplo de registro
-
-```http
-POST /api/auth/register
-Content-Type: application/json
-
-{
-  "name": "Test User",
-  "email": "test@test.com",
-  "password": "Password123"
+    return ResponseEntity
+            .status(HttpStatus.FORBIDDEN)
+            .body(response);
 }
 ```
 
-Respuesta `201 Created`:
+Estos manejadores se agregaron antes del `@ExceptionHandler(Exception.class)` genérico, para que Spring los aplique primero (coincidencia más específica).
+
+---
+
+## 6. Asignación del rol ADMIN
+
+Como el registro (`POST /auth/register`) asigna `ROLE_USER` por defecto, se asignó `ROLE_ADMIN` a un usuario existente directamente en la base de datos:
+
+```sql
+INSERT INTO user_roles (user_id, role_id)
+VALUES (1, (SELECT id FROM roles WHERE name = 'ROLE_ADMIN'));
+```
+
+> **Importante:** los roles quedan incluidos dentro del JWT en el momento en que se genera. Tras asignar el rol en la base de datos, es necesario volver a hacer login con ese usuario para obtener un token nuevo que sí incluya `ROLE_ADMIN`.
+
+---
+
+## 7. Pruebas realizadas (Bruno)
+
+| Escenario | Endpoint | Resultado esperado |
+|-----------|----------|---------------------|
+| Usuario `ROLE_USER` | `GET /api/products` | `403 Forbidden` |
+| Usuario `ROLE_ADMIN` | `GET /api/products` | `200 OK` con la lista completa |
+| Usuario `ROLE_USER` | `GET /api/products/page` | `200 OK` (no restringido) |
+| Sin token | `GET /api/products` | `401 Unauthorized` |
+
+Respuesta de ejemplo al acceder sin el rol adecuado:
 
 ```json
 {
-  "token": "eyJhbGciOiJIUzI1NiJ9...",
-  "type": "Bearer",
-  "userId": 1,
-  "name": "Test User",
-  "email": "test@test.com",
-  "roles": ["ROLE_USER"]
-}
-```
-
-### Ejemplo de login
-
-```http
-POST /api/auth/login
-Content-Type: application/json
-
-{
-  "email": "test@test.com",
-  "password": "Password123"
-}
-```
-
-Respuesta `200 OK`: mismo formato que el registro.
-
----
-
-## 10. Protección del resto de la API
-
-Todo endpoint fuera de `/auth/**` requiere autenticación. El token debe enviarse en el header `Authorization`:
-
-```http
-GET /api/products
-Authorization: Bearer eyJhbGciOiJIUzI1NiJ9...
-```
-
-| Escenario                          | Resultado           |
-|-------------------------------------|----------------------|
-| Sin token                           | `401 Unauthorized`  |
-| Token expirado o modificado         | `401 Unauthorized`  |
-| Token válido                        | `200 OK` (continúa al controlador) |
-
-Los errores de autenticación son manejados por `JwtAuthenticationEntryPoint`, devolviendo un JSON consistente con el resto de la API:
-
-```json
-{
-  "timestamp": "2026-07-08T19:06:17.415137",
-  "status": 401,
-  "error": "Unauthorized",
-  "message": "Token de autenticación inválido o no proporcionado. Debe incluir un token válido en el header Authorization: Bearer <token>",
+  "timestamp": "2026-07-09T00:00:00",
+  "status": 403,
+  "error": "Forbidden",
+  "message": "No tienes permisos para acceder a este recurso",
   "path": "/api/products"
 }
 ```
 
----
-
-## 11. Flujo general de autenticación
-
-```txt
-Cliente                                Servidor
-  |  POST /auth/login                     |
-  |  { email, password }                  |
-  |--------------------------------------->|
-  |                    AuthenticationManager valida credenciales (BCrypt)
-  |                    JwtUtil genera token firmado (HS256)
-  |  { token, userId, roles }             |
-  |<---------------------------------------|
-  |                                        |
-  |  GET /api/products                     |
-  |  Authorization: Bearer <token>         |
-  |--------------------------------------->|
-  |                    JwtAuthenticationFilter valida el token
-  |                    Carga el usuario y sus roles
-  |                    Establece el SecurityContext
-  |  200 OK con los datos                 |
-  |<---------------------------------------|
-```
+![Usuario sin permisos ](assets/12-forbidden.png)
+![Usuario ADMIN ](assets/12-admin-ok.png)
 
 ---
 
-## 12. Pruebas realizadas
+## 8. Aspectos clave
 
-Se creó una colección en **Bruno** con los siguientes requests:
-
-1. **Register** → `POST {{base_url}}/auth/register` → `201 Created`
-2. **Login** → `POST {{base_url}}/auth/login` → `200 OK`, guarda el token en una variable de entorno mediante script post-respuesta
-3. **Get Products (sin token)** → `GET {{base_url}}/products` → `401 Unauthorized`
-4. **Get Products (con token)** → `GET {{base_url}}/products` con `Authorization: Bearer {{token}}` → `200 OK`
-
-![Registro exitoso](assets/11-register-response.png)
-![Login exitoso](assets/11-login-response.png)
-![Endpoint protegido sin token](assets/11-unauthorized.png)
-![Endpoint protegido con token](assets/11-authorized.png)
+- `@EnableMethodSecurity` ya estaba configurado desde la Práctica 11; `@PreAuthorize` funciona sin tocar `SecurityConfig`.
+- `hasRole('ADMIN')` busca automáticamente `"ROLE_ADMIN"` en las *authorities* del usuario (agrega el prefijo `ROLE_` internamente).
+- La protección por rol se aplicó solo donde era necesaria (un endpoint sensible), sin restringir el resto de la API innecesariamente.
+- Sin los manejadores de `AuthorizationDeniedException` y `AccessDeniedException`, la API devolvía `500` en vez de `403` al denegar acceso — un detalle fácil de pasar por alto pero importante para una API bien diseñada.
 
 ---
+
+## 9. Próximos pasos
+
+**Práctica 13** – Validación de *ownership*: permitir que un usuario común solo pueda modificar o eliminar sus propios productos, con `ADMIN` (y opcionalmente `MODERATOR`) saltándose esa restricción. Esta validación se implementará dentro de `ProductServiceImpl`, en los métodos `update()` y `delete()`.

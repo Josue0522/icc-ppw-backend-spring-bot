@@ -30,6 +30,7 @@ public class UsersController {
     }
 
     @GetMapping
+    
     public List<UserResponseDto> findAll() {
         return userService.findAll();
     }
