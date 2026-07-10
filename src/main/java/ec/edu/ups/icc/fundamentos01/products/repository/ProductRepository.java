@@ -66,6 +66,18 @@ public interface ProductRepository extends JpaRepository<ProductEntity, Long> {
             """)
     Slice<ProductEntity> findActiveSlice(Pageable pageable);
 
+    /*
+     * Igual que findActiveSlice, pero filtrando solo los productos
+     * del usuario autenticado (ownerId viene del token JWT).
+     */
+    @Query("""
+            SELECT p
+            FROM ProductEntity p
+            WHERE p.deleted = false
+              AND p.owner.id = :ownerId
+            """)
+    Slice<ProductEntity> findActiveSliceByOwner(Long ownerId, Pageable pageable);
+
     @Query("""
             SELECT DISTINCT p
             FROM ProductEntity p

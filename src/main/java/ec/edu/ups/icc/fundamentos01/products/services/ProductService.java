@@ -12,6 +12,7 @@ import ec.edu.ups.icc.fundamentos01.products.dto.ProductFilterByCategoryDto;
 import ec.edu.ups.icc.fundamentos01.products.dto.ProductFilterByUserDto;
 import ec.edu.ups.icc.fundamentos01.products.dto.ProductResponseDto;
 import ec.edu.ups.icc.fundamentos01.products.dto.UpdateProductDto;
+import ec.edu.ups.icc.fundamentos01.security.services.UserDetailsImpl;
 
 public interface ProductService {
 
@@ -19,13 +20,13 @@ public interface ProductService {
 
     ProductResponseDto findOne(Long id);
 
-    ProductResponseDto create(CreateProductDto dto);
+    ProductResponseDto create(CreateProductDto dto, UserDetailsImpl currentUser);
 
-    ProductResponseDto update(Long id, UpdateProductDto dto);
+    ProductResponseDto update(Long id, UpdateProductDto dto, UserDetailsImpl currentUser);
 
-    ProductResponseDto partialUpdate(Long id, PartialUpdateProductDto dto);
+    ProductResponseDto partialUpdate(Long id, PartialUpdateProductDto dto, UserDetailsImpl currentUser);
 
-    void delete(Long id);
+    void delete(Long id, UserDetailsImpl currentUser);
 
     List<ProductResponseDto> findByUserId(Long userId);
 
@@ -43,7 +44,7 @@ public interface ProductService {
 
     Page<ProductResponseDto> findAllPage(PaginationDto pagination);
 
-    Slice<ProductResponseDto> findAllSlice(PaginationDto pagination);
+    Slice<ProductResponseDto> findAllSlice(PaginationDto pagination, UserDetailsImpl currentUser);
 
     Page<ProductResponseDto> findByCategoryIdWithFiltersPage(
             Long categoryId,

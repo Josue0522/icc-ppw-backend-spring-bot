@@ -1,11 +1,11 @@
 package ec.edu.ups.icc.fundamentos01.core.exceptions.handler;
 
-import java.nio.file.AccessDeniedException;
 import java.util.HashMap;
 import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -91,6 +91,55 @@ public class GlobalExceptionHandler {
                 .body(response);
     }
 
+    // ============== EXCEPCIONES DE AUTORIZACIÓN (PRÁCTICA 12) ==============
+
+    /*
+     * Se lanza cuando @PreAuthorize evalúa a false (Spring Security 6.x).
+     * Ejemplo: usuario con ROLE_USER intenta acceder a un endpoint con
+     * @PreAuthorize("hasRole('ADMIN')").
+     */
+    @ExceptionHandler(AuthorizationDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAuthorizationDeniedException(
+            AuthorizationDeniedException ex,
+            HttpServletRequest request
+    ) {
+        ErrorResponse response = new ErrorResponse(
+                HttpStatus.FORBIDDEN,
+                "No tienes permisos para acceder a este recurso",
+                request.getRequestURI()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(response);
+    }
+
+    /*
+     * Fallback para AccessDeniedException, usada por ejemplo cuando se
+     * lanza manualmente desde un servicio al validar ownership (Práctica 13).
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDeniedException(
+            AccessDeniedException ex,
+            HttpServletRequest request
+    ) {
+        String message = ex.getMessage();
+
+        if (message == null || message.isBlank()) {
+            message = "Acceso denegado";
+        }
+
+        ErrorResponse response = new ErrorResponse(
+                HttpStatus.FORBIDDEN,
+                message,
+                request.getRequestURI()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(response);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpectedException(
             Exception ex,
@@ -106,24 +155,4 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(response);
     }
-
-    @ExceptionHandler(AuthorizationDeniedException.class)
-        public ResponseEntity<ErrorResponse> handleAuthorizationDeniedException(
-                AuthorizationDeniedException ex, HttpServletRequest request) {
-        ErrorResponse response = new ErrorResponse(
-                HttpStatus.FORBIDDEN,
-                "No tienes permisos para acceder a este recurso",
-                request.getRequestURI());
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
-        }
-
-        @ExceptionHandler(AccessDeniedException.class)
-        public ResponseEntity<ErrorResponse> handleAccessDeniedException(
-                AccessDeniedException ex, HttpServletRequest request) {
-        ErrorResponse response = new ErrorResponse(
-                HttpStatus.FORBIDDEN,
-                "Acceso denegado. No tienes los permisos necesarios",
-                request.getRequestURI());
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
-        }
 }
