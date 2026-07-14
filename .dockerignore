@@ -1,0 +1,10 @@
+build/
+bin/
+.gradle/
+.git/
+.idea/
+*.iml
+out/
+assets/
+README.md
+HELP.md
