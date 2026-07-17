@@ -20,6 +20,14 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+/*
+ * Filtro que valida el JWT en cada request y, si es válido,
+ * establece la autenticación en el SecurityContext.
+ *
+ * Desde la Práctica 16, solo acepta access tokens: valida con
+ * validateAccessToken() en vez de validateToken(), para rechazar
+ * cualquier intento de usar un refresh token como Bearer token.
+ */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
@@ -44,7 +52,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             String jwt = getJwtFromRequest(request);
 
-            if (StringUtils.hasText(jwt) && jwtUtil.validateToken(jwt)) {
+            if (StringUtils.hasText(jwt) && jwtUtil.validateAccessToken(jwt)) {
                 String email = jwtUtil.getEmailFromToken(jwt);
                 UserDetails userDetails = userDetailsService.loadUserByUsername(email);
 

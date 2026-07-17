@@ -16,7 +16,9 @@ import ec.edu.ups.icc.fundamentos01.core.exceptions.domain.BadRequestException;
 import ec.edu.ups.icc.fundamentos01.core.exceptions.domain.ConflictException;
 import ec.edu.ups.icc.fundamentos01.security.dtos.AuthResponseDto;
 import ec.edu.ups.icc.fundamentos01.security.dtos.LoginRequestDto;
+import ec.edu.ups.icc.fundamentos01.security.dtos.RefreshTokenRequestDto;
 import ec.edu.ups.icc.fundamentos01.security.dtos.RegisterRequestDto;
+import ec.edu.ups.icc.fundamentos01.security.entities.RefreshTokenEntity;
 import ec.edu.ups.icc.fundamentos01.security.entities.RoleEntity;
 import ec.edu.ups.icc.fundamentos01.security.enums.RoleName;
 import ec.edu.ups.icc.fundamentos01.security.repositories.RoleRepository;
@@ -32,40 +34,61 @@ public class AuthService {
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final RefreshTokenService refreshTokenService;
 
-    public AuthService(AuthenticationManager authenticationManager,
-                        UserRepository userRepository,
-                        RoleRepository roleRepository,
-                        PasswordEncoder passwordEncoder,
-                        JwtUtil jwtUtil) {
+    public AuthService(
+            AuthenticationManager authenticationManager,
+            UserRepository userRepository,
+            RoleRepository roleRepository,
+            PasswordEncoder passwordEncoder,
+            JwtUtil jwtUtil,
+            RefreshTokenService refreshTokenService
+    ) {
         this.authenticationManager = authenticationManager;
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtil = jwtUtil;
+        this.refreshTokenService = refreshTokenService;
     }
 
-    @Transactional(readOnly = true)
+    /*
+     * Login:
+     * 1. Valida credenciales.
+     * 2. Genera access token.
+     * 3. Revoca refresh tokens anteriores (una sola sesión activa).
+     * 4. Genera un refresh token nuevo.
+     */
+    @Transactional
     public AuthResponseDto login(LoginRequestDto loginRequest) {
+
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(
-                        loginRequest.getEmail(), loginRequest.getPassword()));
+                        loginRequest.getEmail(),
+                        loginRequest.getPassword()
+                )
+        );
 
         SecurityContextHolder.getContext().setAuthentication(authentication);
 
-        String jwt = jwtUtil.generateToken(authentication);
+        String accessToken = jwtUtil.generateAccessToken(authentication);
         UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
 
-        Set<String> roles = userDetails.getAuthorities().stream()
-                .map(item -> item.getAuthority())
-                .collect(Collectors.toSet());
+        UserEntity user = findActiveUserById(userDetails.getId());
 
-        return new AuthResponseDto(jwt, userDetails.getId(), userDetails.getName(),
-                userDetails.getEmail(), roles);
+        refreshTokenService.revokeAllByUser(user);
+        RefreshTokenEntity refreshToken = refreshTokenService.createRefreshToken(user, userDetails);
+
+        return buildAuthResponse(accessToken, refreshToken.getToken(), user);
     }
 
+    /*
+     * Registro: crea el usuario con ROLE_USER, genera access token y
+     * refresh token directamente (queda logueado sin login aparte).
+     */
     @Transactional
     public AuthResponseDto register(RegisterRequestDto registerRequest) {
+
         if (userRepository.existsByEmail(registerRequest.getEmail())) {
             throw new ConflictException("El email ya está registrado");
         }
@@ -85,12 +108,61 @@ public class AuthService {
         user = userRepository.save(user);
 
         UserDetailsImpl userDetails = UserDetailsImpl.build(user);
-        String jwt = jwtUtil.generateTokenFromUserDetails(userDetails);
+        String accessToken = jwtUtil.generateAccessTokenFromUserDetails(userDetails);
+        RefreshTokenEntity refreshToken = refreshTokenService.createRefreshToken(user, userDetails);
 
-        Set<String> roleNames = user.getRoles().stream()
+        return buildAuthResponse(accessToken, refreshToken.getToken(), user);
+    }
+
+    /*
+     * Refresh: valida el refresh token, lo revoca (rotación) y genera
+     * un par nuevo de tokens.
+     */
+    @Transactional
+    public AuthResponseDto refresh(RefreshTokenRequestDto request) {
+
+        RefreshTokenEntity currentRefreshToken =
+                refreshTokenService.validateAndGetActiveToken(request.getRefreshToken());
+
+        UserEntity user = currentRefreshToken.getUser();
+
+        refreshTokenService.revoke(currentRefreshToken);
+
+        UserDetailsImpl userDetails = UserDetailsImpl.build(user);
+        String newAccessToken = jwtUtil.generateAccessTokenFromUserDetails(userDetails);
+        RefreshTokenEntity newRefreshToken = refreshTokenService.createRefreshToken(user, userDetails);
+
+        return buildAuthResponse(newAccessToken, newRefreshToken.getToken(), user);
+    }
+
+    /*
+     * Logout: revoca el refresh token recibido.
+     */
+    @Transactional
+    public void logout(RefreshTokenRequestDto request) {
+        RefreshTokenEntity refreshToken =
+                refreshTokenService.validateAndGetActiveToken(request.getRefreshToken());
+
+        refreshTokenService.revoke(refreshToken);
+    }
+
+    private UserEntity findActiveUserById(Long id) {
+        return userRepository.findByIdAndDeletedFalse(id)
+                .orElseThrow(() -> new BadRequestException("Usuario no válido"));
+    }
+
+    private AuthResponseDto buildAuthResponse(String accessToken, String refreshToken, UserEntity user) {
+        Set<String> roles = user.getRoles().stream()
                 .map(role -> role.getName().name())
                 .collect(Collectors.toSet());
 
-        return new AuthResponseDto(jwt, user.getId(), user.getName(), user.getEmail(), roleNames);
+        return new AuthResponseDto(
+                accessToken,
+                refreshToken,
+                user.getId(),
+                user.getName(),
+                user.getEmail(),
+                roles
+        );
     }
 }

@@ -57,14 +57,32 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
+
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint(unauthorizedHandler)
                 )
+
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
+
                 .authorizeHttpRequests(auth -> auth
+                        // Endpoints públicos de autenticación
                         .requestMatchers("/auth/**").permitAll()
+                        .requestMatchers("/status/**").permitAll()
+                        .requestMatchers("/actuator/**").permitAll()
+
+                        // Swagger / OpenAPI: documentación pública de la API
+                        .requestMatchers(
+                                "/swagger-ui/**",
+                                "/swagger-ui.html",
+                                "/v3/api-docs/**",
+                                "/v3/api-docs.yaml",
+                                "/swagger-resources/**",
+                                "/webjars/**"
+                        ).permitAll()
+
+                        // Todo lo demás requiere autenticación
                         .anyRequest().authenticated()
                 );
 

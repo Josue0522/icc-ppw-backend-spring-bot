@@ -1,4 +1,4 @@
-package ec.edu.ups.icc.fundamentos01.core;
+package ec.edu.ups.icc.fundamentos01.core.dtos;
 
 public class ErrorResponseDto {
     private String message;

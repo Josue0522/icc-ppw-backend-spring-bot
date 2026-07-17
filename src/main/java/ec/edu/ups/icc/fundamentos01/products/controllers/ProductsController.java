@@ -24,11 +24,17 @@ import ec.edu.ups.icc.fundamentos01.products.dto.PartialUpdateProductDto;
 import ec.edu.ups.icc.fundamentos01.products.dto.ProductResponseDto;
 import ec.edu.ups.icc.fundamentos01.products.dto.UpdateProductDto;
 import ec.edu.ups.icc.fundamentos01.products.services.ProductService;
+import ec.edu.ups.icc.fundamentos01.security.config.OpenApiConfig;
 import ec.edu.ups.icc.fundamentos01.security.services.UserDetailsImpl;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping("/products")
+@SecurityRequirement(name = OpenApiConfig.SECURITY_SCHEME_NAME)
 public class ProductsController {
 
     private final ProductService service;
@@ -85,6 +91,30 @@ public class ProductsController {
         return service.findAllSlice(pagination, currentUser);
     }
 
+    @Operation(
+    summary = "Obtener producto por ID",
+    description = """
+            Busca un producto activo utilizando su identificador.
+
+            Requiere autenticación JWT.
+            El usuario debe enviar un access token válido.
+            """
+)
+@ApiResponses({
+    @ApiResponse(
+        responseCode = "200",
+        description = "Producto encontrado correctamente"
+    ),
+    @ApiResponse(
+        responseCode = "401",
+        description = "No se proporcionó un access token válido"
+    ),
+    @ApiResponse(
+        responseCode = "404",
+        description = "Producto no encontrado"
+    )
+})
+
     @GetMapping("/{id}")
     public ProductResponseDto findOne(@PathVariable Long id) {
         return service.findOne(id);
@@ -114,6 +144,7 @@ public class ProductsController {
      * La validación de ownership (propietario, ADMIN o no) se hace en el
      * servicio, no aquí (ver Práctica 13).
      */
+
     @PutMapping("/{id}")
     public ProductResponseDto update(
             @PathVariable Long id,
