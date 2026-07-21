@@ -1,238 +1,146 @@
-# Práctica 13: Validación de Ownership
+# Práctica 16: Refresh Token con JWT
 
 ## 1. Tema
 
-Frameworks Backend: Spring Boot – Validación de propiedad de recursos (*ownership*).
+Frameworks Backend: Spring Boot – Renovación de Access Token mediante Refresh Token.
 
-En la Práctica 11 se resolvió *¿quién eres?* (autenticación con JWT) y en la Práctica 12 *¿qué rol tienes?* (autorización con `@PreAuthorize`). En esta práctica se resuelve una tercera pregunta: **¿este recurso te pertenece?**
-
-Hasta este punto, cualquier usuario autenticado podía modificar o eliminar productos de otros usuarios simplemente teniendo un token válido, sin importar quién era el dueño real del recurso.
+En las prácticas anteriores se implementó autenticación (JWT), autorización por rol (`@PreAuthorize`) y autorización por ownership. Sin embargo, el access token tiene una duración corta (30 minutos), y al expirar el usuario debía volver a iniciar sesión desde cero. En esta práctica se implementó un mecanismo de refresh token para renovar la sesión sin pedir credenciales de nuevo.
 
 ---
 
-## 2. Objetivo
+## 2. Problema resuelto
 
-- Que un usuario con `ROLE_USER` solo pueda editar o eliminar **sus propios** productos.
-- Que un usuario con `ROLE_ADMIN` pueda editar o eliminar **cualquier** producto (bypass de ownership).
-- Que el `owner` de un producto se determine **desde el token JWT**, nunca desde un campo enviado por el cliente.
+Antes de esta práctica:
+GET /api/products/page
+Authorization: Bearer <access-token-expirado>
+→ 401 Unauthorized
+
+El usuario debía volver a hacer login. Ahora, en su lugar, puede usar un refresh token de larga duración para obtener un access token nuevo sin reingresar su contraseña.
 
 ---
 
-## 3. Problema de seguridad corregido: `userId` en el body
+## 3. Diferencia entre Access Token y Refresh Token
 
-Antes de esta práctica, `CreateProductDto` incluía un campo `userId` enviado por el cliente:
+| Aspecto | Access Token | Refresh Token |
+|---------|---------------|-----------------|
+| Uso | Acceder a endpoints protegidos | Renovar el access token |
+| Duración | Corta (30 minutos) | Larga (7 días) |
+| Dónde viaja | Header `Authorization: Bearer` | Body de `/auth/refresh` |
+| Se usa en cada request | Sí | No |
+| Se guarda en base de datos | No | Sí |
 
-```json
-{
-  "name": "Laptop",
-  "price": 900,
-  "stock": 10,
-  "userId": 5,
-  "categoryIds": [1, 2]
-}
-```
-
-Esto permitía que un usuario autenticado con `id = 2` creara productos a nombre de otro usuario (`id = 5`), simplemente cambiando ese valor en el body. Se eliminó el campo `userId` de `CreateProductDto`: ahora **el owner del producto siempre es el usuario autenticado**, extraído del JWT.
+Ambos tokens llevan un claim adicional `type` (`"access"` o `"refresh"`) para que el backend pueda distinguirlos y rechazar un refresh token si se intenta usar como access token.
 
 ---
 
 ## 4. Cambios realizados
 
-### 4.1. `CreateProductDto`
-Se eliminó el campo `userId` (validación, getter, setter y constructor actualizados).
+### 4.1. `RefreshTokenEntity` (nueva)
+Entidad JPA que representa un refresh token emitido, guardada en la tabla `refresh_tokens`. Incluye: usuario dueño, el token, fecha de expiración y un flag `revoked`.
 
-### 4.2. `UserRepository`
-Se agregó:
+### 4.2. `RefreshTokenRepository` (nuevo)
 ```java
-Optional<UserEntity> findByIdAndDeletedFalse(Long id);
-```
-Usado para reconvertir el `UserDetailsImpl` del token en una entidad `UserEntity` persistente, verificando que el usuario siga existiendo y no esté eliminado lógicamente.
-
-### 4.3. `ProductService` (interfaz)
-Los métodos que modifican datos ahora reciben el usuario autenticado:
-
-```java
-ProductResponseDto create(CreateProductDto dto, UserDetailsImpl currentUser);
-ProductResponseDto update(Long id, UpdateProductDto dto, UserDetailsImpl currentUser);
-ProductResponseDto partialUpdate(Long id, PartialUpdateProductDto dto, UserDetailsImpl currentUser);
-void delete(Long id, UserDetailsImpl currentUser);
+Optional<RefreshTokenEntity> findByTokenAndRevokedFalse(String token);
+List<RefreshTokenEntity> findByUserIdAndRevokedFalse(Long userId);
 ```
 
-### 4.4. `ProductsController`
-Los endpoints `create`, `update`, `partialUpdate` y `delete` extraen el usuario autenticado con `@AuthenticationPrincipal`:
+### 4.3. `RefreshTokenRequestDto` (nuevo)
+DTO usado en `/auth/refresh` y `/auth/logout` para recibir el refresh token del cliente.
+
+### 4.4. `AuthResponseDto`
+Se agregó el campo `refreshToken`, devuelto junto al `token` (access token) en login, register y refresh.
+
+### 4.5. `JwtUtil`
+Se agregó un claim `type` (`access` / `refresh`) a cada token generado, y métodos separados:
 
 ```java
-@PostMapping
-public ProductResponseDto create(
-        @Valid @RequestBody CreateProductDto dto,
-        @AuthenticationPrincipal UserDetailsImpl currentUser
-) {
-    return service.create(dto, currentUser);
-}
+generateAccessToken(...)
+generateAccessTokenFromUserDetails(...)
+generateRefreshToken(...)
+validateAccessToken(...)   // válido solo si type = access
+validateRefreshToken(...)  // válido solo si type = refresh
+getTokenType(...)
 ```
 
-El resto de endpoints (consultas, `findAll` con `@PreAuthorize("hasRole('ADMIN')")` de la Práctica 12) no cambiaron.
-
-### 4.5. `ProductServiceImpl` — lógica de ownership
-
-En `create()`, el owner ya no sale de `dto.getUserId()`, sino del usuario autenticado:
-
+### 4.6. `JwtAuthenticationFilter`
+Se cambió la validación de:
 ```java
-UserEntity owner = findCurrentUserEntity(currentUser);
+jwtUtil.validateToken(jwt)
 ```
-
-En `update()`, `partialUpdate()` y `delete()`, se agregó la validación justo después de buscar el producto:
-
+a:
 ```java
-ProductEntity entity = productRepository.findByIdAndDeletedFalse(id)
-        .orElseThrow(() -> new NotFoundException("Product not found"));
-
-validateOwnership(entity, currentUser);
+jwtUtil.validateAccessToken(jwt)
 ```
+Esto asegura que un refresh token nunca sea aceptado como Bearer token en un endpoint protegido.
 
-Se agregaron 3 métodos privados:
+### 4.7. `RefreshTokenService` (nuevo)
+Servicio que centraliza la lógica de refresh tokens:
 
-```java
-private UserEntity findCurrentUserEntity(UserDetailsImpl currentUser) {
-    if (currentUser == null) {
-        throw new AccessDeniedException("Usuario no autenticado");
-    }
-    return userRepository.findByIdAndDeletedFalse(currentUser.getId())
-            .orElseThrow(() -> new AccessDeniedException("Usuario no autorizado"));
-}
+- `createRefreshToken(...)`: genera y guarda un refresh token.
+- `validateAndGetActiveToken(...)`: valida firma, tipo, existencia en BD, expiración y que el usuario siga activo.
+- `revoke(...)`: revoca un token específico (usado en logout y en rotación).
+- `revokeAllByUser(...)`: revoca todos los tokens activos de un usuario (usado en login, para dejar una sola sesión activa).
 
-private void validateOwnership(ProductEntity product, UserDetailsImpl currentUser) {
-    if (currentUser == null) {
-        throw new AccessDeniedException("Usuario no autenticado");
-    }
+### 4.8. `AuthService`
+- `login()`: ahora también revoca refresh tokens anteriores del usuario y genera un refresh token nuevo junto al access token.
+- `register()`: genera access token y refresh token al crear el usuario.
+- `refresh()` (nuevo): valida el refresh token recibido, lo revoca (rotación) y genera un par nuevo de tokens.
+- `logout()` (nuevo): revoca el refresh token recibido.
 
-    if (hasRole(currentUser, "ROLE_ADMIN")) {
-        return; // ADMIN se salta la validación de ownership
-    }
+### 4.9. `AuthController`
+Se agregaron dos endpoints:
+POST /api/auth/refresh
+POST /api/auth/logout
 
-    if (product.getOwner() == null || product.getOwner().getId() == null) {
-        throw new AccessDeniedException("El producto no tiene propietario válido");
-    }
-
-    if (!product.getOwner().getId().equals(currentUser.getId())) {
-        throw new AccessDeniedException("No puedes modificar productos ajenos");
-    }
-}
-
-private boolean hasRole(UserDetailsImpl user, String role) {
-    return user.getAuthorities()
-            .stream()
-            .map(GrantedAuthority::getAuthority)
-            .anyMatch(authority -> authority.equals(role));
-}
-```
-
-### 4.6. `GlobalExceptionHandler`
-El manejador de `AccessDeniedException` (creado en la Práctica 12) se ajustó para mostrar el mensaje real de la excepción en lugar de un texto genérico fijo:
-
-```java
-@ExceptionHandler(AccessDeniedException.class)
-public ResponseEntity<ErrorResponse> handleAccessDeniedException(
-        AccessDeniedException ex,
-        HttpServletRequest request
-) {
-    String message = ex.getMessage();
-
-    if (message == null || message.isBlank()) {
-        message = "Acceso denegado";
-    }
-
-    ErrorResponse response = new ErrorResponse(
-            HttpStatus.FORBIDDEN,
-            message,
-            request.getRequestURI()
-    );
-
-    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
-}
-```
+Ambos son públicos (`/auth/**` ya estaba permitido desde la Práctica 11), porque no se validan con access token sino con refresh token, verificado directamente en `RefreshTokenService`.
 
 ---
 
-## 5. Flujo de validación
+## 5. Rotación de refresh token
 
-```txt
-PUT /api/products/{id}
-Authorization: Bearer <token>
-        ↓
-JwtAuthenticationFilter valida el token
-        ↓
-SecurityContext contiene UserDetailsImpl
-        ↓
-ProductsController.update()
-        ↓
-@AuthenticationPrincipal currentUser
-        ↓
-ProductServiceImpl.update(id, dto, currentUser)
-        ↓
-findByIdAndDeletedFalse(id) → producto encontrado
-        ↓
-validateOwnership(producto, currentUser)
-   ├── ¿currentUser tiene ROLE_ADMIN? → SÍ → permite
-   └── ¿currentUser es el owner?
-         ├── SÍ → permite
-         └── NO → AccessDeniedException → 403 Forbidden
-```
+Cada vez que se usa un refresh token en `/auth/refresh`, ese token se revoca y se genera uno nuevo:
+Login → accessToken A + refreshToken A
+Refresh → refreshToken A se revoca → accessToken B + refreshToken B
+Refresh → refreshToken B se revoca → accessToken C + refreshToken C
+
+Esto evita que un mismo refresh token se reutilice indefinidamente, y limita el daño si un refresh token llega a ser robado: solo sirve una vez.
 
 ---
 
-## 6. Diferencia entre los 3 niveles de seguridad
-
-| Caso | Validación | Dónde ocurre | Código |
-|------|-------------|---------------|--------|
-| Sin token / token inválido | Autenticación | `JwtAuthenticationEntryPoint` | `401 Unauthorized` |
-| Token válido, sin el rol requerido | Autorización por rol | `@PreAuthorize` | `403 Forbidden` |
-| Token válido, recurso ajeno | Ownership | `ProductServiceImpl.validateOwnership()` | `403 Forbidden` |
-
----
-
-## 7. Pruebas realizadas (Bruno)
-
-Se registraron dos usuarios (`Usuario A` y `Usuario B`) y se asignó `ROLE_ADMIN` a un tercero mediante SQL:
-
-```sql
-INSERT INTO user_roles (user_id, role_id)
-SELECT <id_usuario>, r.id
-FROM roles r
-WHERE r.name = 'ROLE_ADMIN';
-```
-
-> Los roles quedan incluidos en el JWT en el momento en que se genera, por lo que tras asignar `ROLE_ADMIN` es obligatorio volver a iniciar sesión con ese usuario para obtener un token actualizado.
+## 6. Pruebas realizadas (Bruno, sobre la app corriendo en Docker)
 
 | # | Escenario | Endpoint | Resultado esperado | Resultado obtenido |
 |---|-----------|----------|---------------------|---------------------|
-| 1 | Usuario A crea un producto (sin `userId` en el body) | `POST /api/products` | `200/201`, `owner` = Usuario A | ✅ |
-| 2 | Usuario A edita su propio producto | `PUT /api/products/{id}` | `200 OK` | ✅ |
-| 3 | Usuario B edita el producto de Usuario A | `PUT /api/products/{id}` | `403 Forbidden` – "No puedes modificar productos ajenos" | ✅ |
-| 4 | Usuario B elimina el producto de Usuario A | `DELETE /api/products/{id}` | `403 Forbidden` | ✅ |
-| 5 | ADMIN edita el producto de Usuario A | `PUT /api/products/{id}` | `200 OK` | ✅ |
-| 6 | ADMIN elimina el producto de Usuario A | `DELETE /api/products/{id}` | `200 OK` | ✅ |
+| 1 | Login | `POST /api/auth/login` | `200 OK` con `token` y `refreshToken` | ✅ |
+| 2 | Usar refresh token como access token | `GET /api/products/page` | `401 Unauthorized` | ✅ |
+| 3 | Refresh exitoso | `POST /api/auth/refresh` | `200 OK` con tokens nuevos | ✅ |
+| 4 | Reutilizar refresh token anterior (ya rotado) | `POST /api/auth/refresh` | `400 Bad Request` – "Refresh token no encontrado o revocado" | ✅ |
+| 5 | Logout | `POST /api/auth/logout` | `204 No Content` | ✅ |
+| 6 | Refresh después de logout | `POST /api/auth/refresh` | `400 Bad Request` | ✅ |
 
-![Creación de producto con owner desde el token](assets/13-create-product.png)
-![Bloqueo al editar producto ajeno](assets/13-forbidden-update.png)
-![Bloqueo al eliminar producto ajeno](assets/13-forbidden-delete.png)
-![ADMIN modificando producto ajeno](assets/13-admin-update.png)
+![Login con refresh token](assets/14-login.png)
+![Refresh token rechazado como access token](assets/14-refresh-as-access-401.png)
+![Refresh exitoso](assets/14-refresh-ok.png)
+![Refresh token anterior revocado](assets/14-refresh-token-revocado.png)
+![Logout exitoso](assets/14-logout.png)
+![Refresh después de logout](assets/14-refresh-after-logout.png)
+
+---
+
+## 7. Preguntas de la actividad
+
+**¿Cuál es la diferencia entre access token y refresh token?**
+
+El access token es el que se envía en cada petición protegida (`Authorization: Bearer <token>`) y tiene una duración corta (30 minutos), para limitar el daño si es robado. El refresh token, en cambio, no se usa para acceder a recursos directamente: su único propósito es obtener un access token nuevo cuando el anterior expira, sin que el usuario tenga que volver a ingresar su contraseña. Dura mucho más (7 días) y se guarda en base de datos para poder revocarlo.
+
+**¿Por qué el refresh token no debe usarse en `Authorization: Bearer`?**
+
+Porque tiene un propósito distinto y un nivel de exposición distinto: si un refresh token se filtrara y se aceptara como access token, un atacante tendría acceso a la API por mucho más tiempo (días en vez de minutos) sin que el sistema pudiera diferenciarlo de un uso legítimo. Por eso cada token lleva un claim `type`, y `JwtAuthenticationFilter` solo acepta tokens con `type = access`; un refresh token usado como Bearer es rechazado con `401 Unauthorized`.
+
+**¿Qué significa rotar un refresh token?**
+
+Significa que cada vez que un refresh token se usa para renovar la sesión, ese token se invalida (revoca) inmediatamente y se entrega uno nuevo en su lugar. Así, un refresh token solo puede usarse una vez: si alguien intenta reutilizar uno ya usado (por ejemplo, porque fue robado y tanto el atacante como el usuario legítimo lo usan), el sistema lo rechaza, porque ya quedó marcado como revocado en la base de datos.
 
 ---
 
-## 8. Preguntas de la actividad
-
-**¿Qué es ownership?**
-
-Ownership (propiedad) es la relación entre un recurso y el usuario al que pertenece. En este proyecto, cada producto tiene un `owner` (el usuario que lo creó), y la regla de negocio establece que solo ese usuario —o un `ADMIN`— puede modificarlo o eliminarlo. Es un nivel de seguridad adicional a la autenticación y a los roles: no basta con estar identificado y tener el rol correcto, también hace falta ser el dueño del recurso específico sobre el que se actúa.
-
-**¿Por qué no es seguro recibir `userId` en `CreateProductDto`?**
-
-Porque el cliente podría enviar cualquier `userId`, incluso uno que no le corresponde, y el servidor lo aceptaría sin verificar que coincida con el usuario autenticado. Esto permitiría crear recursos a nombre de otra persona. La solución correcta es obtener siempre el ID del usuario desde el JWT ya validado (`@AuthenticationPrincipal`), que es información que el propio servidor generó y firmó, y que el cliente no puede falsificar.
-
-**¿Cuál es la diferencia entre autorización por rol y autorización por ownership?**
-
-La autorización por rol (`@PreAuthorize("hasRole('ADMIN')")`) responde *¿qué tipo de usuario eres?* y se evalúa de forma estática antes de ejecutar el método, sin mirar los datos del recurso solicitado. La autorización por ownership responde *¿este recurso específico te pertenece?* y necesita cargar primero el recurso de la base de datos para comparar su propietario con el usuario autenticado — por eso se implementa dentro del servicio y no como una anotación en el controlador.
-
----
 
