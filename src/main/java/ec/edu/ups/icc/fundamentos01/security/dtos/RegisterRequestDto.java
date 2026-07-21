@@ -1,21 +1,26 @@
 package ec.edu.ups.icc.fundamentos01.security.dtos;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
+@Schema(description = "Datos requeridos para registrar un usuario")
 public class RegisterRequestDto {
 
+    @Schema(description = "Nombre completo del usuario", example = "Usuario A")
     @NotBlank(message = "El nombre es obligatorio")
     @Size(min = 3, max = 150, message = "El nombre debe tener entre 3 y 150 caracteres")
     private String name;
 
+    @Schema(description = "Email del usuario", example = "usera@ups.edu.ec")
     @NotBlank(message = "El email es obligatorio")
     @Email(message = "Debe ingresar un email válido")
     @Size(max = 150, message = "El email no debe superar los 150 caracteres")
     private String email;
 
+    @Schema(description = "Contraseña segura con mayúscula, minúscula y número", example = "Password123")
     @NotBlank(message = "La contraseña es obligatoria")
     @Size(min = 8, max = 100, message = "La contraseña debe tener entre 8 y 100 caracteres")
     @Pattern(

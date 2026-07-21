@@ -30,11 +30,23 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 
+/*
+ * Controlador REST encargado de exponer endpoints HTTP
+ * para la gestión de productos.
+ *
+ * Todos los endpoints de este controlador requieren JWT,
+ * porque el proyecto usa .anyRequest().authenticated().
+ */
+@Tag(
+        name = "Productos",
+        description = "Gestión de productos con paginación, roles y ownership"
+)
+@SecurityRequirement(name = OpenApiConfig.SECURITY_SCHEME_NAME)
 @RestController
 @RequestMapping("/products")
-@SecurityRequirement(name = OpenApiConfig.SECURITY_SCHEME_NAME)
 public class ProductsController {
 
     private final ProductService service;
@@ -44,16 +56,28 @@ public class ProductsController {
     }
 
     /*
-     * Endpoint normal.
+     * Endpoint administrativo.
      *
      * GET /api/products
-     *
-     * Se mantiene sin paginación para comparar con los endpoints paginados.
      *
      * Solo ADMIN puede acceder: muestra todos los productos de todos los
      * usuarios sin paginación, lo que expone más información de la necesaria
      * para un usuario común.
      */
+    @Operation(
+            summary = "Listar todos los productos",
+            description = """
+                    Devuelve todos los productos activos sin paginación.
+
+                    Este endpoint es administrativo y requiere ROLE_ADMIN.
+                    Para consultas normales se recomienda usar /products/page o /products/slice.
+                    """
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Listado completo de productos"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "El usuario no tiene ROLE_ADMIN")
+    })
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
     public List<ProductResponseDto> findAll() {
@@ -67,6 +91,19 @@ public class ProductsController {
      * GET /api/products/page?page=0&size=5
      * GET /api/products/page?page=0&size=5&sortBy=price&direction=desc
      */
+    @Operation(
+            summary = "Listar productos con Page",
+            description = """
+                    Devuelve productos activos usando Page.
+
+                    Incluye metadatos como totalElements, totalPages, number, size, first y last.
+                    """
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Página de productos obtenida correctamente"),
+            @ApiResponse(responseCode = "400", description = "Parámetros de paginación inválidos"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido")
+    })
     @GetMapping("/page")
     public Page<ProductResponseDto> findAllPage(
             @Valid @ModelAttribute PaginationDto pagination
@@ -83,6 +120,19 @@ public class ProductsController {
      *
      * Solo muestra los productos del usuario autenticado (owner = token JWT).
      */
+    @Operation(
+            summary = "Listar productos propios con Slice",
+            description = """
+                    Devuelve, usando Slice, solo los productos del usuario autenticado.
+
+                    No calcula totalElements ni totalPages. Útil para scroll infinito.
+                    """
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Slice de productos obtenido correctamente"),
+            @ApiResponse(responseCode = "400", description = "Parámetros de paginación inválidos"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido")
+    })
     @GetMapping("/slice")
     public Slice<ProductResponseDto> findAllSlice(
             @Valid @ModelAttribute PaginationDto pagination,
@@ -92,29 +142,18 @@ public class ProductsController {
     }
 
     @Operation(
-    summary = "Obtener producto por ID",
-    description = """
-            Busca un producto activo utilizando su identificador.
+            summary = "Obtener producto por ID",
+            description = """
+                    Busca un producto activo utilizando su identificador.
 
-            Requiere autenticación JWT.
-            El usuario debe enviar un access token válido.
-            """
-)
-@ApiResponses({
-    @ApiResponse(
-        responseCode = "200",
-        description = "Producto encontrado correctamente"
-    ),
-    @ApiResponse(
-        responseCode = "401",
-        description = "No se proporcionó un access token válido"
-    ),
-    @ApiResponse(
-        responseCode = "404",
-        description = "Producto no encontrado"
+                    Requiere autenticación JWT. El usuario debe enviar un access token válido.
+                    """
     )
-})
-
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Producto encontrado correctamente"),
+            @ApiResponse(responseCode = "401", description = "No se proporcionó un access token válido"),
+            @ApiResponse(responseCode = "404", description = "Producto no encontrado")
+    })
     @GetMapping("/{id}")
     public ProductResponseDto findOne(@PathVariable Long id) {
         return service.findOne(id);
@@ -128,6 +167,21 @@ public class ProductsController {
      * El owner ya no se toma desde el body: se obtiene desde el token JWT
      * mediante @AuthenticationPrincipal (ver Práctica 13).
      */
+    @Operation(
+            summary = "Crear producto",
+            description = """
+                    Crea un producto asociado al usuario autenticado.
+
+                    El cliente no debe enviar userId: el owner se obtiene desde el JWT
+                    mediante @AuthenticationPrincipal.
+                    """
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Producto creado correctamente"),
+            @ApiResponse(responseCode = "400", description = "Datos de entrada inválidos"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "409", description = "Nombre de producto ya registrado")
+    })
     @PostMapping
     public ProductResponseDto create(
             @Valid @RequestBody CreateProductDto dto,
@@ -144,7 +198,22 @@ public class ProductsController {
      * La validación de ownership (propietario, ADMIN o no) se hace en el
      * servicio, no aquí (ver Práctica 13).
      */
+    @Operation(
+            summary = "Actualizar producto",
+            description = """
+                    Actualiza completamente un producto.
 
+                    ROLE_USER solo puede actualizar productos propios.
+                    ROLE_ADMIN puede actualizar cualquier producto.
+                    """
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Producto actualizado correctamente"),
+            @ApiResponse(responseCode = "400", description = "Datos de entrada inválidos"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "El usuario no es propietario del producto"),
+            @ApiResponse(responseCode = "404", description = "Producto no encontrado")
+    })
     @PutMapping("/{id}")
     public ProductResponseDto update(
             @PathVariable Long id,
@@ -161,6 +230,21 @@ public class ProductsController {
      *
      * Misma validación de ownership que update().
      */
+    @Operation(
+            summary = "Actualizar parcialmente un producto",
+            description = """
+                    Actualiza solo los campos enviados en el body.
+
+                    Misma regla de ownership que la actualización completa.
+                    """
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Producto actualizado correctamente"),
+            @ApiResponse(responseCode = "400", description = "Datos de entrada inválidos"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "El usuario no es propietario del producto"),
+            @ApiResponse(responseCode = "404", description = "Producto no encontrado")
+    })
     @PatchMapping("/{id}")
     public ProductResponseDto partialUpdate(
             @PathVariable Long id,
@@ -177,6 +261,21 @@ public class ProductsController {
      *
      * Misma validación de ownership que update().
      */
+    @Operation(
+            summary = "Eliminar producto",
+            description = """
+                    Elimina lógicamente un producto (soft delete).
+
+                    ROLE_USER solo puede eliminar productos propios.
+                    ROLE_ADMIN puede eliminar cualquier producto.
+                    """
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Producto eliminado correctamente"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "El usuario no es propietario del producto"),
+            @ApiResponse(responseCode = "404", description = "Producto no encontrado")
+    })
     @DeleteMapping("/{id}")
     public void delete(
             @PathVariable Long id,
@@ -185,16 +284,40 @@ public class ProductsController {
         service.delete(id, currentUser);
     }
 
+    @Operation(
+            summary = "Listar productos de un usuario",
+            description = "Devuelve todos los productos activos de un usuario específico, dado su ID."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Listado obtenido correctamente"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido")
+    })
     @GetMapping("/user/{userId}")
     public List<ProductResponseDto> findByUserId(@PathVariable Long userId) {
         return service.findByUserId(userId);
     }
 
+    @Operation(
+            summary = "Listar productos de una categoría",
+            description = "Devuelve todos los productos activos que pertenecen a una categoría específica."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Listado obtenido correctamente"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido")
+    })
     @GetMapping("/category/{categoryId}")
     public List<ProductResponseDto> findByCategoryId(@PathVariable Long categoryId) {
         return service.findByCategoryId(categoryId);
     }
 
+    @Operation(
+            summary = "Validar disponibilidad de nombre",
+            description = "Verifica si ya existe un producto activo registrado con ese nombre."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Consulta realizada correctamente"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido")
+    })
     @GetMapping("/validate-name")
     public boolean validateName(@RequestParam String name) {
         return service.validateName(name);

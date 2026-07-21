@@ -25,3 +25,13 @@ jwt:
   issuer: fundamentos01-api
   header: Authorization
   prefix: "Bearer "
+
+# ============== SWAGGER / OPENAPI ==============
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+    try-it-out-enabled: true
