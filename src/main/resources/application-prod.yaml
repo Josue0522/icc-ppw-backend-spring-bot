@@ -1,0 +1,32 @@
+server:
+  port: ${PORT}
+  servlet:
+    context-path: /api
+
+spring:
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+      minimum-idle: ${DB_POOL_MIN_IDLE:2}
+      connection-timeout: ${DB_CONNECTION_TIMEOUT:20000}
+
+  jpa:
+    show-sql: ${JPA_SHOW_SQL}
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO}
+
+logging:
+  level:
+    root: ${ROOT_LOG_LEVEL:WARN}
+    ec.edu.ups.icc.fundamentos01: ${APP_LOG_LEVEL:INFO}
+
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION}
+  refresh-expiration: ${JWT_REFRESH_EXPIRATION}
+  issuer: ${JWT_ISSUER}
+  header: Authorization
+  prefix: "Bearer "

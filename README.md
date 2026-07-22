@@ -1,183 +1,160 @@
-# Práctica 15: Documentación de API con Swagger y OpenAPI
+# Práctica 16: Despliegue portable de Spring Boot con Docker y Nginx en Ubuntu Server
 
 ## 1. Tema
 
-Frameworks Backend: Spring Boot – Documentación interactiva de endpoints con Swagger UI, OpenAPI y seguridad JWT.
+Frameworks Backend: Spring Boot – Despliegue portable con Docker, Nginx y PostgreSQL externo sobre Ubuntu Server.
 
-Hasta este punto, la API ya cuenta con CRUD completo, autenticación JWT, autorización por roles, ownership y refresh tokens. Sin embargo, no existía ninguna documentación interactiva: para saber qué endpoints existían, qué parámetros recibían o qué respuestas podían devolver, había que revisar el código directamente o depender de una colección de Bruno mantenida a mano. En esta práctica se integró **Swagger UI** mediante **springdoc-openapi**, generando documentación automática y navegable directamente desde el backend.
-
----
-
-## 2. Objetivo
-
-- Exponer una interfaz interactiva (Swagger UI) donde se puedan ver y probar todos los endpoints de la API.
-- Documentar cada endpoint con su propósito, parámetros y posibles códigos de respuesta.
-- Permitir probar endpoints protegidos por JWT directamente desde Swagger, usando el botón **Authorize**.
-- Mantener Swagger UI público en desarrollo, sin debilitar la seguridad de los endpoints reales (que siguen exigiendo JWT).
+El objetivo de esta práctica fue preparar la API para que la misma imagen Docker pudiera ejecutarse en distintos ambientes (desarrollo local, Ubuntu Server, y potencialmente un PaaS como Render) sin modificar el código ni reconstruir la imagen por cada entorno. La configuración específica de cada ambiente se entrega mediante variables de entorno, no mediante código hardcodeado.
 
 ---
 
-## 3. Dependencia agregada
+## 2. Arquitectura
 
-Archivo: `build.gradle.kts`
+```text
+HOST anfitrión (Windows)
+├── Código fuente e IDE
+├── PostgreSQL de desarrollo: 192.168.56.1:5432
+└── Red Host-Only de VirtualBox
+             │
+             │ 192.168.56.0/24
+             ▼
+Ubuntu Server: 192.168.56.103
+├── Docker Engine
+├── Contenedor Spring Boot (fundamentos-api)
+└── Contenedor Nginx
+```
 
+Flujo HTTP final:
+
+```text
+HOST → http://192.168.56.103/api/... → Nginx:80 → fundamentos-api:8080 → PostgreSQL
+```
+
+---
+
+## 3. Configuración por ambientes
+
+Se dividió la configuración en tres archivos:
+
+```text
+src/main/resources/
+├── application.yaml        ← configuración común (nombre de app, Actuator, Swagger)
+├── application-dev.yaml    ← valores por defecto para desarrollo local
+└── application-prod.yaml   ← exige variables de entorno, sin valores por defecto
+```
+
+`application-prod.yaml` no tiene valores predeterminados para URL de base de datos, credenciales, secreto JWT, puerto ni nivel de logging: si una variable obligatoria no está definida, la aplicación falla al arrancar. Esto evita desplegar por error una instancia de producción con credenciales de desarrollo.
+
+---
+
+## 4. Cambios en `build.gradle.kts`
+
+- Se agregó `spring-boot-starter-actuator` para exponer `/actuator/health`.
+- Se fijó el nombre del artefacto generado:
 ```kotlin
-dependencies {
-    // ...
-
-    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3")
-}
+  tasks.bootJar {
+      archiveFileName.set("app.jar")
+  }
+  tasks.jar {
+      enabled = false
+  }
 ```
 
 ---
 
-## 4. Rutas de acceso
+## 5. `Dockerfile` multi-stage con capas separadas
 
-Con `context-path: /api` configurado en el proyecto:
+Se usó un Dockerfile de dos etapas:
 
-| Recurso | Ruta |
-|---------|------|
-| Swagger UI | `http://localhost:8080/api/swagger-ui/index.html` |
-| JSON OpenAPI | `http://localhost:8080/api/v3/api-docs` |
+1. **`builder`**: compila con JDK y Gradle Wrapper, y descomprime el JAR generado para separar `BOOT-INF/lib` (dependencias) de `BOOT-INF/classes` (código propio).
+2. **`runtime`**: copia esas capas por separado en una imagen liviana con solo el JRE, corriendo con un usuario no-root (`spring`).
+
+Separar dependencias de clases permite que, cuando solo cambia el código (no las dependencias), Docker reutilice la capa de dependencias en reconstrucciones posteriores, acelerando el build.
+
+Se agregó también un `HEALTHCHECK` que consulta `/api/actuator/health` cada 30 segundos, usado por Docker para reportar el estado del contenedor.
 
 ---
 
-## 5. Permitir Swagger públicamente en `SecurityConfig`
+## 6. Variables de entorno
 
-Como el proyecto ya usa `.anyRequest().authenticated()`, Swagger quedaba bloqueado por defecto. Se agregó una regla explícita:
+### `.env.dev` (local, no versionado)
+Usado para correr la app localmente con el perfil `dev`.
 
-```java
-.authorizeHttpRequests(auth -> auth
-        .requestMatchers("/auth/**").permitAll()
-        .requestMatchers("/status/**").permitAll()
-        .requestMatchers("/actuator/**").permitAll()
+### `.env.ubuntu` (dentro de la VM, no versionado)
+Usado para correr el contenedor en Ubuntu Server con el perfil `prod`, apuntando al PostgreSQL del host anfitrión mediante la IP de la red Host-Only:
 
-        .requestMatchers(
-                "/swagger-ui/**",
-                "/swagger-ui.html",
-                "/v3/api-docs/**",
-                "/v3/api-docs.yaml",
-                "/swagger-resources/**",
-                "/webjars/**"
-        ).permitAll()
-
-        .anyRequest().authenticated()
-)
+```dotenv
+DATABASE_URL=jdbc:postgresql://192.168.56.1:5432/devdb
 ```
 
-> **Importante:** aunque el proyecto usa `context-path: /api`, en `requestMatchers` no se escribe el prefijo `/api`, porque Spring Security evalúa las rutas internas de la aplicación, no la URL externa completa.
+### `.env.example` (sí versionado)
+Plantilla sin secretos, como referencia de qué variables necesita el proyecto.
 
-Con esto, Swagger UI es visible sin token, pero **los endpoints documentados siguen exigiendo JWT** igual que antes — Swagger solo describe la API, no cambia sus reglas de seguridad.
+Ninguno de los archivos `.env*` reales se sube al repositorio (`.gitignore` los excluye explícitamente, salvo `.env.example`).
 
 ---
 
-## 6. `OpenApiConfig`
+## 7. Preparación de la VM Ubuntu Server
 
-Archivo: `security/config/OpenApiConfig.java`
+- Se creó una red **Host-Only** en VirtualBox (`192.168.56.0/24`).
+- La VM se configuró con **dos adaptadores de red**: uno NAT (para acceso a internet, `apt`, `git clone`) y otro Host-Only (para comunicarse con el host anfitrión).
+- Se instaló Ubuntu Server (LTS), con OpenSSH habilitado durante la instalación para poder administrar la VM por SSH desde Windows en lugar de usar la consola de VirtualBox.
+- IP asignada a la VM en la red Host-Only: `192.168.56.103`
+- Se instaló Docker Engine dentro de la VM y se creó la red interna `app-network` para conectar los contenedores de la aplicación entre sí.
 
-Se creó una configuración que personaliza:
+---
 
-- Título, versión y descripción general de la API.
-- El servidor base (`/api`, para que Swagger construya las rutas correctamente).
-- Un esquema de seguridad `bearerAuth` (tipo HTTP Bearer, formato JWT), que habilita el botón **Authorize** en Swagger UI.
+## 8. Despliegue de la aplicación en Ubuntu Server
 
-```java
-public static final String SECURITY_SCHEME_NAME = "bearerAuth";
+Se clonó el repositorio dentro de la VM y se construyó la imagen con el `Dockerfile` multi-stage descrito en la sección 5:
+
+```bash
+docker build --pull -t fundamentos-api:1.0 .
 ```
 
-Este nombre se reutiliza luego en `@SecurityRequirement(name = OpenApiConfig.SECURITY_SCHEME_NAME)` sobre los controladores protegidos.
+El contenedor de la API se ejecutó conectado a la red `app-network`, recibiendo la configuración mediante `--env-file .env.ubuntu`, sin publicar directamente el puerto 8080 al exterior:
 
----
-
-## 7. Documentación por controlador
-
-### 7.1. `AuthController`
-Se agregó `@Tag(name = "Autenticación")` a nivel de clase, y `@Operation` + `@ApiResponses` en cada uno de los 4 endpoints (`login`, `register`, `refresh`, `logout`). **No** se usó `@SecurityRequirement` a nivel de clase, porque ninguno de estos endpoints exige un access token: se validan con credenciales o con un refresh token en el body, no con el header `Authorization`.
-
-### 7.2. `ProductsController`
-Se agregó `@Tag(name = "Productos")` y `@SecurityRequirement(name = OpenApiConfig.SECURITY_SCHEME_NAME)` a nivel de clase, ya que todos sus endpoints requieren JWT. Cada método (`findAll`, `findAllPage`, `findAllSlice`, `findOne`, `create`, `update`, `partialUpdate`, `delete`, `findByUserId`, `findByCategoryId`, `validateName`) quedó documentado con `@Operation` (resumen y descripción) y `@ApiResponses` (los códigos HTTP que puede devolver, incluyendo `401`, `403` y `404` según corresponda a cada regla de negocio ya implementada en prácticas anteriores).
-
----
-
-## 8. Documentación de DTOs con `@Schema`
-
-Se documentaron los DTOs de entrada más usados, agregando descripciones y ejemplos por campo:
-
-- `LoginRequestDto` (`email`, `password`)
-- `RegisterRequestDto` (`name`, `email`, `password`)
-- `PaginationDto` (`page`, `size`, `sortBy`, `direction`)
-
-Ejemplo:
-
-```java
-@Schema(description = "Correo del usuario", example = "usera@ups.edu.ec")
-@NotBlank(message = "El email es obligatorio")
-@Email(message = "Debe ingresar un email válido")
-private String email;
+```bash
+docker run -d \
+  --name fundamentos-api \
+  --network app-network \
+  --env-file .env.ubuntu \
+  fundamentos-api:1.0
 ```
 
-Esto hace que Swagger muestre, junto a cada campo del formulario, un ejemplo de valor esperado, facilitando probar los endpoints sin adivinar el formato.
+Se levantó un contenedor de **Nginx** como reverse proxy, publicado en el puerto 80, redirigiendo las peticiones a `fundamentos-api:8080` mediante resolución DNS interna de Docker:
 
----
-
-## 9. Configuración adicional en `application.yaml`
-
-```yaml
-springdoc:
-  api-docs:
-    path: /v3/api-docs
-  swagger-ui:
-    path: /swagger-ui.html
-    operations-sorter: method
-    tags-sorter: alpha
-    try-it-out-enabled: true
+```bash
+docker run -d \
+  --name nginx \
+  --network app-network \
+  -p 80:80 \
+  -v "$(pwd)/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro" \
+  nginx:alpine
 ```
 
-| Propiedad | Efecto |
-|-----------|--------|
-| `operations-sorter: method` | Ordena los endpoints de cada tag por método HTTP |
-| `tags-sorter: alpha` | Ordena los tags alfabéticamente |
-| `try-it-out-enabled: true` | Habilita el botón "Try it out" en todos los endpoints por defecto |
+De esta forma, la API queda accesible únicamente a través de Nginx (`puerto 80`), mientras que el puerto 8080 de Spring Boot permanece privado dentro de la red interna de Docker.
 
 ---
 
-## 10. Pruebas realizadas (Swagger UI)
+## 9. Pruebas realizadas
 
-| # | Escenario | Resultado esperado | Resultado obtenido |
-|---|-----------|----------------------|----------------------|
-| 1 | Cargar Swagger UI | Se ven los grupos "Autenticación" y "Productos" | ✅ |
-| 2 | Consultar el JSON OpenAPI | Documento válido con `openapi`, `info`, `paths` | ✅ |
-| 3 | Revisar `AuthController` documentado | Endpoints con descripciones claras | ✅ |
-| 4 | Botón Authorize | Modal con esquema `bearerAuth` para pegar el JWT | ✅ |
-| 5 | `GET /products/page` sin token | `401 Unauthorized` | ✅ |
-| 6 | `GET /products/page` con token | `200 OK` | ✅ |
-| 7 | `GET /products` con `ROLE_USER` | `403 Forbidden` | ✅ |
-
-![Swagger UI cargado](assets/15-swagger-ui.png)
-![JSON OpenAPI](assets/15-openapi-json.png)
-![AuthController documentado](assets/15-auth-controller.png)
-![Botón Authorize](assets/15-authorize-button.png)
-![Endpoint protegido sin token](assets/15-protected-401.png)
-![Endpoint protegido con token](assets/15-protected-200.png)
-![Endpoint ADMIN con usuario normal](assets/15-admin-403.png)
-
-> El caso complementario (`GET /products` con `ROLE_ADMIN` → `200 OK`) ya había quedado evidenciado en la Práctica 12, al implementar `@PreAuthorize("hasRole('ADMIN')")` sobre ese mismo endpoint.
+| # | Prueba | Comando | Resultado esperado | Resultado obtenido |
+|---|--------|---------|---------------------|----------------------|
+| 1 | Contenedores corriendo en Ubuntu | `docker ps` | `nginx` y `fundamentos-api` en estado `Up` 
+| 2 | Health check desde Ubuntu Server | `curl http://localhost/api/actuator/health` | `{"status":"UP"}` 
+| 3 | Health check desde la máquina anfitriona | `http://192.168.56.103/api/actuator/health` | `{"status":"UP"}` 
 
 ---
 
-## 11. Preguntas de la actividad
+## 10. Evidencias
 
-**¿Cuál es la diferencia entre Swagger UI y OpenAPI?**
+![docker ps en Ubuntu Server mostrando ambos contenedores en ejecución](assets/16-docker-ps.png)
 
-OpenAPI es una especificación estándar (un formato JSON o YAML) para describir una API REST: sus rutas, métodos, parámetros, cuerpos de petición y respuesta, y esquemas de seguridad. Swagger UI, en cambio, es la interfaz visual que **lee** esa especificación OpenAPI y la presenta de forma interactiva, permitiendo explorar y probar los endpoints desde el navegador. En este proyecto, `springdoc-openapi` genera automáticamente el documento OpenAPI a partir del código (controladores, DTOs, anotaciones), y Swagger UI lo consume para mostrar la documentación navegable.
+![curl /actuator/health ejecutado desde dentro de Ubuntu Server](assets/16-health-ubuntu.png)
 
-**¿Por qué Swagger puede ser público pero los endpoints seguir protegidos?**
+![Dirección IP recibida desde la máquina principal](assets/16-health-host-ip.png)
 
-Porque son dos cosas independientes en `SecurityConfig`: permitir el acceso a `/swagger-ui/**` y `/v3/api-docs/**` solo hace visible la **documentación** de la API (el catálogo de endpoints y su descripción), no otorga acceso a los datos reales. Cada endpoint documentado sigue teniendo sus propias reglas (`.anyRequest().authenticated()`, `@PreAuthorize`, validación de ownership), evaluadas exactamente igual que si se llamara desde Bruno o cualquier otro cliente. Swagger UI simplemente arma la petición HTTP por ti; el backend la trata como cualquier otra.
-
-**¿Cómo se configura Swagger para enviar un JWT en `Authorization: Bearer`?**
-
-Se define un esquema de seguridad tipo HTTP Bearer en `OpenApiConfig` (`SecurityScheme.Type.HTTP`, `scheme("bearer")`, `bearerFormat("JWT")`), registrado con el nombre `bearerAuth`. Ese nombre se referencia luego con `@SecurityRequirement(name = "bearerAuth")` en los controladores que requieren autenticación (como `ProductsController`). Esto hace que Swagger UI muestre el botón **Authorize**: al pegar ahí un token JWT válido, Swagger lo guarda y lo adjunta automáticamente como header `Authorization: Bearer <token>` en cada petición que se pruebe desde la interfaz, sin tener que copiarlo manualmente en cada endpoint.
+![Health check accedido desde el navegador de la máquina principal](assets/16-health-host.png)
 
 ---
-

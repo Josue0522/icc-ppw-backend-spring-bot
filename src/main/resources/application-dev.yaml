@@ -1,0 +1,29 @@
+server:
+  port: ${PORT:8080}
+  servlet:
+    context-path: /api
+
+spring:
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/devdb}
+    username: ${DB_USERNAME:ups}
+    password: ${DB_PASSWORD:ups123}
+
+  jpa:
+    show-sql: ${JPA_SHOW_SQL:true}
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO:update}
+
+logging:
+  level:
+    root: INFO
+    ec.edu.ups.icc.fundamentos01: DEBUG
+    org.hibernate.SQL: DEBUG
+
+jwt:
+  secret: ${JWT_SECRET:mySecretKeyForJWT2024MustBeAtLeast256BitsLongForHS256Algorithm}
+  expiration: ${JWT_EXPIRATION:1800000}
+  refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
+  issuer: fundamentos01-api
+  header: Authorization
+  prefix: "Bearer "

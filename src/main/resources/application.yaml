@@ -1,30 +1,15 @@
-server:
-  port: 8080
-  servlet:
-    context-path: /api
-
 spring:
   application:
     name: fundamentos01
 
-  datasource:
-    url: jdbc:postgresql://localhost:5432/devdb
-    username: ups
-    password: ups123
-
-  jpa:
-    hibernate:
-      ddl-auto: update
-    show-sql: true
-
-# ============== CONFIGURACIÓN DE JWT ==============
-jwt:
-  secret: ${JWT_SECRET:mySecretKeyForJWT2024MustBeAtLeast256BitsLongForHS256Algorithm}
-  expiration: 1800000
-  refresh-expiration: 604800000
-  issuer: fundamentos01-api
-  header: Authorization
-  prefix: "Bearer "
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
 
 # ============== SWAGGER / OPENAPI ==============
 springdoc:

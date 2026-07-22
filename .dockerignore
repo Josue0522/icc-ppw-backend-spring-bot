@@ -1,10 +1,37 @@
-build/
-bin/
+# Gradle
 .gradle/
+build/
+
+# Git
 .git/
+.gitignore
+
+# IDE
 .idea/
+.vscode/
 *.iml
-out/
-assets/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Variables y secretos
+.env
+.env.*
+
+# Logs
+*.log
+logs/
+
+# Temporales
+*.tmp
+*.swp
+tmp/
+temp/
+
+# Documentación y archivos no requeridos en el build
 README.md
-HELP.md
+
+# Configuraciones locales
+compose.override.yaml
+docker-compose.override.yml

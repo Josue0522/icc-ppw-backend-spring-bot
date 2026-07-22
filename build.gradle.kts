@@ -36,8 +36,19 @@ dependencies {
 
 	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3")
 
+	// ============== ACTUATOR: health checks para Docker/Nginx ==============
+	implementation("org.springframework.boot:spring-boot-starter-actuator")
+
 }
 
 tasks.withType<Test> {
 	useJUnitPlatform()
+}
+
+tasks.bootJar {
+	archiveFileName.set("app.jar")
+}
+
+tasks.jar {
+	enabled = false
 }
